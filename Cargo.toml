@@ -1,0 +1,26 @@
+[package]
+name = "schlep"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+kubert = { version = "0.21", default-features = false, features = [
+    "clap",
+    "log",
+    "shutdown",
+] }
+anyhow = "1"
+bytes = "1"
+clap = { version = "4", features = ["derive", "env"] }
+http-body-util = "0.1"
+hyper = { version = "1", features = [
+    "http2",
+    "client",
+    "server",
+] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+futures = { version = "0.3", default-features = false }
+rand = "0.8"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
