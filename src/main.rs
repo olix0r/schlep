@@ -205,28 +205,69 @@ async fn run_client(address: &str, uri: hyper::Uri, rate: f64) -> Result<()> {
     let mut timer = time::interval(time::Duration::from_secs_f64(1.0 / rate));
     timer.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
 
+    let mut report_timer = time::interval(time::Duration::from_secs_f64(10.0));
+    report_timer.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
+    report_timer.reset();
+
+    let mut success = 0;
+    let mut total = 0;
+    let mut duration_histo = hdrhistogram::Histogram::<u64>::new(3).unwrap();
+    let (rsp_tx, mut rsp_rx) =
+        tokio::sync::mpsc::channel::<(hyper::StatusCode, time::Duration)>(1_000_000);
+
     loop {
-        timer.tick().await;
+        tokio::select! {
+            _ = report_timer.tick() => {
+                while let Ok((status, elapsed)) = rsp_rx.try_recv() {
+                    duration_histo.saturating_record(elapsed.as_millis() as u64);
+                    if status.is_success() {
+                        success += 1;
+                    }
+                    total += 1;
+                }
+
+                tracing::info!("total={} success={:.01}% p50={}ms p90={}ms p99={}ms",
+                    total,
+                    success as f64 / total as f64 * 100.0,
+                    duration_histo.value_at_quantile(0.5),
+                    duration_histo.value_at_quantile(0.9),
+                    duration_histo.value_at_quantile(0.99)
+                );
+
+                success = 0;
+                total = 0;
+                duration_histo.clear();
+                continue;
+            }
+
+            _ = timer.tick() => {}
+        }
 
         let req = hyper::Request::builder()
             .uri(uri.clone())
             .body(Empty::<Bytes>::default())
             .unwrap();
+
         let start = time::Instant::now();
-
-        tokio::select! {
-            res = client.ready() => res?
-        }
-
+        client.ready().await?;
         let call = client.send_request(req);
+        let rsp_tx = rsp_tx.clone();
         tokio::spawn(async move {
-            match call.await {
-                Ok(res) => {
-                    tracing::info!(status = ?res.status(), elapsed = start.elapsed().as_secs_f64());
+            let res = call.await;
+            let elapsed = start.elapsed();
+            let status = match res {
+                Ok(rsp) => {
+                    tracing::debug!(status = ?rsp.status(), ?elapsed);
+                    rsp.status()
                 }
                 Err(error) => {
-                    tracing::warn!(%error, "Request failed");
+                    tracing::warn!(%error, ?elapsed, "Request failed");
+                    hyper::StatusCode::INTERNAL_SERVER_ERROR
                 }
+            };
+
+            if rsp_tx.try_send((status, elapsed)).is_err() {
+                tracing::error!("Response channel full");
             }
         });
     }

@@ -13,6 +13,7 @@ kubert = { version = "0.21", default-features = false, features = [
 anyhow = "1"
 bytes = "1"
 clap = { version = "4", features = ["derive", "env"] }
+hdrhistogram = "7"
 http-body-util = "0.1"
 hyper = { version = "1", features = [
     "http2",
