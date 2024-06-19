@@ -34,14 +34,16 @@ async fn main() -> Result<()> {
         Cmd::Client(ClientArgs {
             address,
             rate,
-            max_sleep,
             fail_rate,
+            sleep_p50,
+            sleep_p90,
+            sleep_p99,
         }) => {
             if rate.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
                 anyhow::bail!("--rate must be greater than zero");
             }
 
-            let uri = format!("http://{address}/?max-sleep={max_sleep}&fail-rate={fail_rate}")
+            let uri = format!("http://{address}/?p50={sleep_p50}&p90={sleep_p90}&p99={sleep_p99}&fail-rate={fail_rate}")
                 .parse::<hyper::Uri>()?;
 
             tokio::select! {
@@ -82,10 +84,16 @@ struct ClientArgs {
     rate: f64,
 
     #[arg(long, default_value = "0.0")]
-    max_sleep: f64,
+    fail_rate: f64,
 
     #[arg(long, default_value = "0.0")]
-    fail_rate: f64,
+    sleep_p50: f64,
+
+    #[arg(long, default_value = "0.0")]
+    sleep_p90: f64,
+
+    #[arg(long, default_value = "0.0")]
+    sleep_p99: f64,
 }
 
 #[derive(Clone, Debug, clap::Parser)]
@@ -125,7 +133,9 @@ async fn run_server(
                 let start = time::Instant::now();
 
                 let mut status = 204;
-                let mut max_sleep = 0.0;
+                let mut p50 = time::Duration::ZERO;
+                let mut p90 = time::Duration::ZERO;
+                let mut p99 = time::Duration::ZERO;
                 let mut fail_rate = 0.0;
 
                 if let Some(q) = req.uri().query() {
@@ -137,20 +147,33 @@ async fn run_server(
                                         fail_rate = f;
                                     }
                                 }
-                            } else if key.eq_ignore_ascii_case("max-sleep") {
-                                if let Ok(s) = val.parse() {
-                                    if s > 0.0 {
-                                        max_sleep = s;
+                            } else if key.eq_ignore_ascii_case("p50") {
+                                if let Ok(v) = val.parse() {
+                                    if v > 0.0 {
+                                        p50 = time::Duration::from_secs_f64(v);
+                                    }
+                                }
+                            } else if key.eq_ignore_ascii_case("p90") {
+                                if let Ok(v) = val.parse() {
+                                    if v > 0.0 {
+                                        p90 = time::Duration::from_secs_f64(v);
+                                    }
+                                }
+                            } else if key.eq_ignore_ascii_case("p99") {
+                                if let Ok(v) = val.parse() {
+                                    if v > 0.0 {
+                                        p99 = time::Duration::from_secs_f64(v);
                                     }
                                 }
                             }
                         }
                     }
                 }
-                if max_sleep > 0.0 {
-                    let sleep = rand::thread_rng().gen_range(0.0..=max_sleep);
+
+                let sleep = gen_sleep(p50, p90, p99);
+                if sleep > time::Duration::ZERO {
                     tracing::debug!(?sleep);
-                    time::sleep(time::Duration::from_secs_f64(sleep)).await;
+                    time::sleep(sleep).await;
                 }
 
                 if fail_rate > 0.0 && rand::thread_rng().gen::<f64>() < fail_rate {
@@ -158,9 +181,9 @@ async fn run_server(
                 }
                 tracing::info!(
                     status,
+                    elapsed = ?start.elapsed(),
                     fail_rate,
-                    elapsed = start.elapsed().as_secs_f64(),
-                    max_sleep
+                    ?p50, ?p90, ?p99,
                 );
 
                 Ok::<_, Infallible>(
@@ -271,4 +294,18 @@ async fn run_client(address: &str, uri: hyper::Uri, rate: f64) -> Result<()> {
             }
         });
     }
+}
+
+fn gen_sleep(p50: time::Duration, p90: time::Duration, p99: time::Duration) -> time::Duration {
+    let mut rng = rand::thread_rng();
+    let r = rng.gen::<f64>();
+    let f = rng.gen::<f64>();
+
+    time::Duration::from_secs_f64(if r < 0.5 {
+        f * p50.as_secs_f64()
+    } else if r < 0.9 {
+        p50.as_secs_f64() + f * (p90 - p50).as_secs_f64()
+    } else {
+        p90.as_secs_f64() + f * (p99 - p90).as_secs_f64()
+    })
 }
