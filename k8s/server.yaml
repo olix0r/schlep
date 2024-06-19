@@ -1,0 +1,49 @@
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: server
+  namespace: schlep
+  labels:
+    app: schlep
+    role: server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: schlep
+      role: server
+  template:
+    metadata:
+      labels:
+        app: schlep
+        role: server
+    spec:
+      containers:
+        - name: main
+          image: ghcr.io/olix0r/schlep:v0.1.0
+          args:
+            - server
+            - --max-concurrent-streams=100
+          ports:
+            - containerPort: 8080
+...
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: schlep
+  namespace: schlep
+  labels:
+    app: schlep
+    role: server
+spec:
+  type: LoadBalancer
+  selector:
+    app: schlep
+    role: server
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+...

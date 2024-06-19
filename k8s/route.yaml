@@ -1,0 +1,23 @@
+---
+kind: HTTPRoute
+apiVersion: gateway.networking.k8s.io/v1beta1
+metadata:
+  name: schlep-default
+  namespace: schlep
+  annotations:
+    # retry.linkerd.io/limit: "2"
+    # retry.linkerd.io/http: "5xx"
+    # retry.linkerd.io/timeout: "200ms"
+    # timeout.linkerd.io/stream: "400ms"
+    # timeout.linkerd.io/response: "100ms"
+spec:
+  parentRefs:
+    - name: schlep
+      kind: Service
+      group: core
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: "/"
+...

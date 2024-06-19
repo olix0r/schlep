@@ -1,0 +1,33 @@
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: client
+  namespace: schlep
+  labels:
+    app: schlep
+    role: client
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: schlep
+      role: client
+  template:
+    metadata:
+      labels:
+        app: schlep
+        role: client
+      annotations:
+        linkerd.io/inject: enabled
+    spec:
+      containers:
+        - name: main
+          image: ghcr.io/olix0r/schlep:v0.1.0
+          args:
+            - client
+            - --address=schlep:80
+            - --rate=10
+            - --max-sleep=2.0
+            - --fail-rate=0.1
+...
