@@ -7,8 +7,12 @@ use rand::Rng;
 use std::{
     convert::Infallible,
     net::{Ipv4Addr, Ipv6Addr, SocketAddr},
+    path::PathBuf,
 };
-use tokio::time;
+use tokio::{
+    sync::{self, watch},
+    time,
+};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -103,12 +107,16 @@ struct ServerArgs {
 
     #[arg(long)]
     max_concurrent_streams: Option<u32>,
+
+    #[arg(long)]
+    config: Option<PathBuf>,
 }
 
 async fn run_server(
     ServerArgs {
         port,
         max_concurrent_streams,
+        config,
     }: ServerArgs,
 ) -> Result<()> {
     let mut server = hyper::server::conn::http2::Builder::new(TokioExecutor::new());
@@ -123,78 +131,147 @@ async fn run_server(
     )
     .await?;
 
+    let params = spawn_config(config).await?;
+
     loop {
         let (io, _addr) = listener.accept().await?;
 
+        let params = params.clone();
         let server = server.clone();
         tokio::spawn(server.serve_connection(
             hyper_util::rt::TokioIo::new(io),
-            hyper::service::service_fn(|req| async move {
-                let start = time::Instant::now();
+            hyper::service::service_fn(move |req| {
+                let params = params.clone();
+                async move {
+                    let start = time::Instant::now();
 
-                let mut status = 204;
-                let mut p50 = time::Duration::ZERO;
-                let mut p90 = time::Duration::ZERO;
-                let mut p99 = time::Duration::ZERO;
-                let mut fail_rate = 0.0;
+                    let mut status = 204;
+                    let mut params = {
+                        let p = params.borrow();
+                        (*p).clone()
+                    };
 
-                if let Some(q) = req.uri().query() {
-                    for pair in q.split('&') {
-                        if let Some((key, val)) = pair.split_once('=') {
-                            if key.eq_ignore_ascii_case("fail-rate") {
-                                if let Ok(f) = val.parse() {
-                                    if f > 0.0 {
-                                        fail_rate = f;
+                    if let Some(q) = req.uri().query() {
+                        for pair in q.split('&') {
+                            if let Some((key, val)) = pair.split_once('=') {
+                                if key.eq_ignore_ascii_case("fail-rate") {
+                                    if let Ok(f) = val.parse::<f64>() {
+                                        if f > 0.0 {
+                                            params.fail_rate += f;
+                                        }
                                     }
-                                }
-                            } else if key.eq_ignore_ascii_case("p50") {
-                                if let Ok(v) = val.parse() {
-                                    if v > 0.0 {
-                                        p50 = time::Duration::from_secs_f64(v);
+                                } else if key.eq_ignore_ascii_case("p50") {
+                                    if let Ok(v) = val.parse::<f64>() {
+                                        if v > 0.0 {
+                                            params.sleep_p50 += v;
+                                        }
                                     }
-                                }
-                            } else if key.eq_ignore_ascii_case("p90") {
-                                if let Ok(v) = val.parse() {
-                                    if v > 0.0 {
-                                        p90 = time::Duration::from_secs_f64(v);
+                                } else if key.eq_ignore_ascii_case("p90") {
+                                    if let Ok(v) = val.parse::<f64>() {
+                                        if v > 0.0 {
+                                            params.sleep_p90 += v;
+                                        }
                                     }
-                                }
-                            } else if key.eq_ignore_ascii_case("p99") {
-                                if let Ok(v) = val.parse() {
-                                    if v > 0.0 {
-                                        p99 = time::Duration::from_secs_f64(v);
+                                } else if key.eq_ignore_ascii_case("p99") {
+                                    if let Ok(v) = val.parse::<f64>() {
+                                        if v > 0.0 {
+                                            params.sleep_p99 += v;
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
 
-                let sleep = gen_sleep(p50, p90, p99);
-                if sleep > time::Duration::ZERO {
-                    tracing::debug!(?sleep);
-                    time::sleep(sleep).await;
-                }
+                    tracing::debug!(?params);
 
-                if fail_rate > 0.0 && rand::thread_rng().gen::<f64>() < fail_rate {
-                    status = 500;
-                }
-                tracing::info!(
-                    status,
-                    elapsed = ?start.elapsed(),
-                    fail_rate,
-                    ?p50, ?p90, ?p99,
-                );
+                    let sleep = gen_sleep(&params);
+                    if sleep > time::Duration::ZERO {
+                        tracing::debug!(?sleep);
+                        time::sleep(sleep).await;
+                    }
 
-                Ok::<_, Infallible>(
-                    hyper::Response::builder()
-                        .status(status)
-                        .body(Empty::<Bytes>::default())
-                        .unwrap(),
-                )
+                    if params.fail_rate > 0.0 && rand::thread_rng().gen::<f64>() < params.fail_rate
+                    {
+                        status = 500;
+                    }
+
+                    tracing::info!(
+                        status,
+                        elapsed = ?start.elapsed(),
+                    );
+
+                    Ok::<_, Infallible>(
+                        hyper::Response::builder()
+                            .status(status)
+                            .body(Empty::<Bytes>::default())
+                            .unwrap(),
+                    )
+                }
             }),
         ));
     }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, serde::Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+struct Params {
+    fail_rate: f64,
+    sleep_p50: f64,
+    sleep_p90: f64,
+    sleep_p99: f64,
+}
+
+async fn spawn_config(path: Option<PathBuf>) -> Result<watch::Receiver<Params>> {
+    let Some(path) = path else {
+        let (tx, rx) = sync::watch::channel(Params::default());
+        tokio::spawn(async move {
+            tx.closed().await;
+        });
+        return Ok(rx);
+    };
+
+    async fn read(path: &PathBuf) -> Result<Params> {
+        let data = tokio::fs::read_to_string(&path).await?;
+        if let Ok(params) = serde_json::from_str(&data) {
+            return Ok(params);
+        }
+        serde_yml::from_str(&data).map_err(Into::into)
+    }
+
+    let (tx, rx) = sync::watch::channel(read(&path).await.unwrap_or_else(|error| {
+        tracing::warn!(%error, "Failed to read config");
+        Default::default()
+    }));
+
+    let mut timer = time::interval(time::Duration::from_secs(10));
+    timer.reset();
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                _ = timer.tick() => {}
+                _ = tx.closed() => return,
+            }
+
+            let config = match read(&path).await {
+                Ok(params) => params,
+                Err(error) => {
+                    tracing::warn!(%error, "Failed to read config");
+                    continue;
+                }
+            };
+            tx.send_if_modified(|c| {
+                if config != *c {
+                    *c = config;
+                    true
+                } else {
+                    false
+                }
+            });
+        }
+    });
+
+    Ok(rx)
 }
 
 async fn run_client(address: &str, uri: hyper::Uri, rate: f64) -> Result<()> {
@@ -296,16 +373,23 @@ async fn run_client(address: &str, uri: hyper::Uri, rate: f64) -> Result<()> {
     }
 }
 
-fn gen_sleep(p50: time::Duration, p90: time::Duration, p99: time::Duration) -> time::Duration {
+fn gen_sleep(
+    Params {
+        sleep_p50,
+        sleep_p90,
+        sleep_p99,
+        ..
+    }: &Params,
+) -> time::Duration {
     let mut rng = rand::thread_rng();
     let r = rng.gen::<f64>();
     let f = rng.gen::<f64>();
 
     time::Duration::from_secs_f64(if r < 0.5 {
-        f * p50.as_secs_f64()
+        f * sleep_p50
     } else if r < 0.9 {
-        p50.as_secs_f64() + f * (p90 - p50).as_secs_f64()
+        sleep_p90 + f * (sleep_p90 - sleep_p50)
     } else {
-        p90.as_secs_f64() + f * (p99 - p90).as_secs_f64()
+        sleep_p90 + f * (sleep_p99 - sleep_p90)
     })
 }

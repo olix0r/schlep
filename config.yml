@@ -1,0 +1,4 @@
+fail-rate: 0.05
+#sleep-p50: 0.025
+#sleep-p90: 0.25
+#sleep-p99: 2.5

@@ -1,6 +1,6 @@
 [package]
 name = "schlep"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 publish = false
 
@@ -23,5 +23,8 @@ hyper = { version = "1", features = [
 hyper-util = { version = "0.1", features = ["tokio"] }
 futures = { version = "0.3", default-features = false }
 rand = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yml = "0.0.10"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"

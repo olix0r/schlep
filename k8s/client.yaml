@@ -23,13 +23,13 @@ spec:
     spec:
       containers:
         - name: main
-          image: ghcr.io/olix0r/schlep:v0.2.0
+          image: ghcr.io/olix0r/schlep:v0.3.0
           args:
             - client
             - --address=schlep:80
             - --rate=100
             - --sleep-p50=0.025
-            - --sleep-p90=0.25
-            - --sleep-p99=1.0
-            - --fail-rate=0.1
+            - --sleep-p90=0.05
+            - --sleep-p99=0.25
+            - --fail-rate=0.05
 ...

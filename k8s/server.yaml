@@ -1,32 +1,114 @@
 ---
-kind: Deployment
-apiVersion: apps/v1
+kind: ConfigMap
+apiVersion: v1
 metadata:
   name: server
   namespace: schlep
   labels:
     app: schlep
+data:
+  good.json: |
+    {
+      "fail-rate": 0.001,
+      "sleep-p50": 0.001,
+      "sleep-p90": 0.01,
+      "sleep-p99": 0.02,
+    }
+  evil.json: |
+    {
+      "fail-rate": 0.2,
+      "sleep-p50": 0.1,
+      "sleep-p90": 0.5,
+      "sleep-p99": 1.0,
+    }
+...
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: server-good
+  namespace: schlep
+  labels:
+    app: schlep
     role: server
+    flavor: good
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: schlep
+      role: server
+      flavor: good
+  template:
+    metadata:
+      labels:
+        app: schlep
+        role: server
+        flavor: good
+    spec:
+      containers:
+        - name: main
+          image: ghcr.io/olix0r/schlep:v0.3.0
+          args:
+            - server
+            - --config=/good.json
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: config
+              mountPath: /good.json
+              subPath: good.json
+      volumes:
+        - name: config
+          configMap:
+            name: server
+            items:
+              - key: good.json
+                path: good.json
+...
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: server-evil
+  namespace: schlep
+  labels:
+    app: schlep
+    role: server
+    flavor: evil
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: schlep
       role: server
+      flavor: evil
   template:
     metadata:
       labels:
         app: schlep
         role: server
+        flavor: evil
     spec:
       containers:
         - name: main
-          image: ghcr.io/olix0r/schlep:v0.2.0
+          image: ghcr.io/olix0r/schlep:v0.3.0
           args:
             - server
-            - --max-concurrent-streams=100
+            - --config=/evil.json
           ports:
             - containerPort: 8080
+          volumeMounts:
+            - name: config
+              mountPath: /evil.json
+              subPath: evil.json
+      volumes:
+        - name: config
+          configMap:
+            name: server
+            items:
+              - key: evil.json
+                path: evil.json
 ...
 ---
 kind: Service
