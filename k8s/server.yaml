@@ -48,7 +48,7 @@ spec:
     spec:
       containers:
         - name: main
-          image: ghcr.io/olix0r/schlep:v0.3.0
+          image: ghcr.io/olix0r/schlep:v0.3.1
           args:
             - server
             - --config=/good.json
@@ -92,7 +92,7 @@ spec:
     spec:
       containers:
         - name: main
-          image: ghcr.io/olix0r/schlep:v0.3.0
+          image: ghcr.io/olix0r/schlep:v0.3.1
           args:
             - server
             - --config=/evil.json
