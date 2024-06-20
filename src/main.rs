@@ -383,13 +383,12 @@ fn gen_sleep(
 ) -> time::Duration {
     let mut rng = rand::thread_rng();
     let r = rng.gen::<f64>();
-    let f = rng.gen::<f64>();
 
     time::Duration::from_secs_f64(if r < 0.5 {
-        f * sleep_p50
+        (r / 0.5) * sleep_p50
     } else if r < 0.9 {
-        sleep_p90 + f * (sleep_p90 - sleep_p50)
+        sleep_p50 + (r / 0.9) * (sleep_p90 - sleep_p50)
     } else {
-        sleep_p90 + f * (sleep_p99 - sleep_p90)
+        sleep_p90 + r * (sleep_p99 - sleep_p90)
     })
 }
