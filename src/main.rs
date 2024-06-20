@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 use bytes::Bytes;
 use clap::Parser;
 use http_body_util::Empty;
@@ -10,7 +10,7 @@ use std::{
     path::PathBuf,
 };
 use tokio::{
-    sync::{self, watch},
+    sync::{self, mpsc, watch},
     time,
 };
 
@@ -133,81 +133,22 @@ async fn run_server(
 
     let params = spawn_config(config).await?;
 
-    loop {
-        let (io, _addr) = listener.accept().await?;
+    let rsp_tx = Summary::spawn(time::Duration::from_secs(10));
 
-        let params = params.clone();
-        let server = server.clone();
+    loop {
+        let (io, _addr) = match listener.accept().await {
+            Ok(io) => io,
+            Err(error) => {
+                tracing::warn!(%error, "Failed to accept connection");
+                continue;
+            }
+        };
         tokio::spawn(server.serve_connection(
             hyper_util::rt::TokioIo::new(io),
-            hyper::service::service_fn(move |req| {
+            hyper::service::service_fn({
                 let params = params.clone();
-                async move {
-                    let start = time::Instant::now();
-
-                    let mut status = 204;
-                    let mut params = {
-                        let p = params.borrow();
-                        (*p).clone()
-                    };
-
-                    if let Some(q) = req.uri().query() {
-                        for pair in q.split('&') {
-                            if let Some((key, val)) = pair.split_once('=') {
-                                if key.eq_ignore_ascii_case("fail-rate") {
-                                    if let Ok(f) = val.parse::<f64>() {
-                                        if f > 0.0 {
-                                            params.fail_rate += f;
-                                        }
-                                    }
-                                } else if key.eq_ignore_ascii_case("p50") {
-                                    if let Ok(v) = val.parse::<f64>() {
-                                        if v > 0.0 {
-                                            params.sleep_p50 += v;
-                                        }
-                                    }
-                                } else if key.eq_ignore_ascii_case("p90") {
-                                    if let Ok(v) = val.parse::<f64>() {
-                                        if v > 0.0 {
-                                            params.sleep_p90 += v;
-                                        }
-                                    }
-                                } else if key.eq_ignore_ascii_case("p99") {
-                                    if let Ok(v) = val.parse::<f64>() {
-                                        if v > 0.0 {
-                                            params.sleep_p99 += v;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    tracing::debug!(?params);
-
-                    let sleep = gen_sleep(&params);
-                    if sleep > time::Duration::ZERO {
-                        tracing::debug!(?sleep);
-                        time::sleep(sleep).await;
-                    }
-
-                    if params.fail_rate > 0.0 && rand::thread_rng().gen::<f64>() < params.fail_rate
-                    {
-                        status = 500;
-                    }
-
-                    tracing::info!(
-                        status,
-                        elapsed = ?start.elapsed(),
-                    );
-
-                    Ok::<_, Infallible>(
-                        hyper::Response::builder()
-                            .status(status)
-                            .body(Empty::<Bytes>::default())
-                            .unwrap(),
-                    )
-                }
+                let tx = rsp_tx.clone();
+                move |req| serve(req, (*params.borrow()).clone(), tx.clone())
             }),
         ));
     }
@@ -222,9 +163,75 @@ struct Params {
     sleep_p99: f64,
 }
 
+async fn serve<B>(
+    req: hyper::Request<B>,
+    mut params: Params,
+    tx: mpsc::Sender<Event>,
+) -> Result<hyper::Response<Empty<Bytes>>, Infallible> {
+    let start = time::Instant::now();
+
+    let mut status = hyper::StatusCode::NO_CONTENT;
+
+    if let Some(q) = req.uri().query() {
+        for pair in q.split('&') {
+            if let Some((key, val)) = pair.split_once('=') {
+                if key.eq_ignore_ascii_case("fail-rate") {
+                    if let Ok(f) = val.parse::<f64>() {
+                        if f > 0.0 {
+                            params.fail_rate += f;
+                        }
+                    }
+                } else if key.eq_ignore_ascii_case("p50") {
+                    if let Ok(v) = val.parse::<f64>() {
+                        if v > 0.0 {
+                            params.sleep_p50 += v;
+                        }
+                    }
+                } else if key.eq_ignore_ascii_case("p90") {
+                    if let Ok(v) = val.parse::<f64>() {
+                        if v > 0.0 {
+                            params.sleep_p90 += v;
+                        }
+                    }
+                } else if key.eq_ignore_ascii_case("p99") {
+                    if let Ok(v) = val.parse::<f64>() {
+                        if v > 0.0 {
+                            params.sleep_p99 += v;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    tracing::debug!(?params);
+
+    let sleep = gen_sleep(&params);
+    if sleep > time::Duration::ZERO {
+        tracing::debug!(?sleep);
+        time::sleep(sleep).await;
+    }
+
+    if params.fail_rate > 0.0 && rand::thread_rng().gen::<f64>() < params.fail_rate {
+        status = hyper::StatusCode::INTERNAL_SERVER_ERROR;
+    }
+
+    tracing::debug!(%status, elapsed = ?start.elapsed());
+    if tx.try_send((status, start.elapsed())).is_err() {
+        tracing::error!("Response channel full");
+    }
+
+    Ok::<_, Infallible>(
+        hyper::Response::builder()
+            .status(status)
+            .body(Empty::<Bytes>::default())
+            .unwrap(),
+    )
+}
+
 async fn spawn_config(path: Option<PathBuf>) -> Result<watch::Receiver<Params>> {
     let Some(path) = path else {
-        let (tx, rx) = sync::watch::channel(Params::default());
+        let (tx, rx) = watch::channel(Params::default());
         tokio::spawn(async move {
             tx.closed().await;
         });
@@ -274,6 +281,95 @@ async fn spawn_config(path: Option<PathBuf>) -> Result<watch::Receiver<Params>> 
     Ok(rx)
 }
 
+struct SummaryRx {
+    durations: hdrhistogram::Histogram<u64>,
+    rx: mpsc::Receiver<Event>,
+}
+
+type Event = (hyper::StatusCode, time::Duration);
+
+struct Summary {
+    total: u64,
+    success_rate: f64,
+    p50: time::Duration,
+    p90: time::Duration,
+    p99: time::Duration,
+}
+
+impl Summary {
+    fn spawn(interval: time::Duration) -> mpsc::Sender<Event> {
+        let (tx, rx) = mpsc::channel(1_000_000);
+        let mut rx = SummaryRx {
+            durations: hdrhistogram::Histogram::<u64>::new(3).unwrap(),
+            rx,
+        };
+
+        tokio::spawn(async move {
+            let mut timer = time::interval(interval);
+            timer.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
+            timer.reset();
+
+            tracing::info!(" TOTAL  SUCCESS     P50     P90     P99");
+            loop {
+                timer.tick().await;
+                let Ok(Summary {
+                    total,
+                    success_rate,
+                    p50,
+                    p90,
+                    p99,
+                }) = rx.summarize()
+                else {
+                    return;
+                };
+                tracing::info!(
+                    "{total:6}  {:6.1}%  {:4}ms  {:4}ms  {:4}ms",
+                    success_rate * 100.0,
+                    p50.as_millis(),
+                    p90.as_millis(),
+                    p99.as_millis()
+                );
+            }
+        });
+
+        tx
+    }
+}
+
+impl SummaryRx {
+    fn summarize(&mut self) -> Result<Summary> {
+        let (mut total, mut success) = (0, 0);
+
+        loop {
+            let (status, elapsed) = match self.rx.try_recv() {
+                Ok(ev) => ev,
+                Err(mpsc::error::TryRecvError::Disconnected) if total == 0 => bail!("disonnected"),
+                Err(_) => break,
+            };
+            self.durations.saturating_record(elapsed.as_millis() as u64);
+            if status.is_success() {
+                success += 1;
+            }
+            total += 1;
+        }
+
+        let success_rate = success as f64 / total as f64;
+        let p50 = self.durations.value_at_quantile(0.5);
+        let p90 = self.durations.value_at_quantile(0.9);
+        let p99 = self.durations.value_at_quantile(0.99);
+
+        self.durations.clear();
+
+        Ok(Summary {
+            total,
+            success_rate,
+            p50: time::Duration::from_millis(p50),
+            p90: time::Duration::from_millis(p90),
+            p99: time::Duration::from_millis(p99),
+        })
+    }
+}
+
 async fn run_client(address: &str, uri: hyper::Uri, rate: f64) -> Result<()> {
     // Connect to the server.
     let (mut client, conn) = loop {
@@ -305,43 +401,10 @@ async fn run_client(address: &str, uri: hyper::Uri, rate: f64) -> Result<()> {
     let mut timer = time::interval(time::Duration::from_secs_f64(1.0 / rate));
     timer.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
 
-    let mut report_timer = time::interval(time::Duration::from_secs_f64(10.0));
-    report_timer.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
-    report_timer.reset();
-
-    let mut success = 0;
-    let mut total = 0;
-    let mut duration_histo = hdrhistogram::Histogram::<u64>::new(3).unwrap();
-    let (rsp_tx, mut rsp_rx) =
-        tokio::sync::mpsc::channel::<(hyper::StatusCode, time::Duration)>(1_000_000);
+    let rsp_tx = Summary::spawn(time::Duration::from_secs(10));
 
     loop {
-        tokio::select! {
-            _ = report_timer.tick() => {
-                while let Ok((status, elapsed)) = rsp_rx.try_recv() {
-                    duration_histo.saturating_record(elapsed.as_millis() as u64);
-                    if status.is_success() {
-                        success += 1;
-                    }
-                    total += 1;
-                }
-
-                tracing::info!("total={} success={:.01}% p50={}ms p90={}ms p99={}ms",
-                    total,
-                    success as f64 / total as f64 * 100.0,
-                    duration_histo.value_at_quantile(0.5),
-                    duration_histo.value_at_quantile(0.9),
-                    duration_histo.value_at_quantile(0.99)
-                );
-
-                success = 0;
-                total = 0;
-                duration_histo.clear();
-                continue;
-            }
-
-            _ = timer.tick() => {}
-        }
+        timer.tick().await;
 
         let req = hyper::Request::builder()
             .uri(uri.clone())
