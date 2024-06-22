@@ -1,4 +1,23 @@
 ---
+kind: Service
+apiVersion: v1
+metadata:
+  name: schlep
+  namespace: schlep
+  labels:
+    app: schlep
+    role: server
+spec:
+  type: LoadBalancer
+  selector:
+    app: schlep
+    role: server
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+...
+---
 kind: ConfigMap
 apiVersion: v1
 metadata:
@@ -9,17 +28,19 @@ metadata:
 data:
   good.json: |
     {
-      "fail-rate": 0.001,
-      "sleep-p50": 0.001,
-      "sleep-p90": 0.01,
-      "sleep-p99": 0.02,
+      "sleep-p50": 0.01,
+      "sleep-p90": 0.1,
+      "sleep-p99": 0.3,
     }
-  evil.json: |
+  fail.json: |
     {
-      "fail-rate": 0.2,
+      "fail-rate": 0.8,
+    }
+  slow.json: |
+    {
       "sleep-p50": 0.1,
-      "sleep-p90": 0.5,
-      "sleep-p99": 1.0,
+      "sleep-p90": 0.8,
+      "sleep-p99": 2.0,
     }
 ...
 ---
@@ -33,7 +54,7 @@ metadata:
     role: server
     flavor: good
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: schlep
@@ -70,62 +91,86 @@ spec:
 kind: Deployment
 apiVersion: apps/v1
 metadata:
-  name: server-evil
+  name: server-fail
   namespace: schlep
   labels:
     app: schlep
     role: server
-    flavor: evil
+    flavor: fail
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: schlep
       role: server
-      flavor: evil
+      flavor: fail
   template:
     metadata:
       labels:
         app: schlep
         role: server
-        flavor: evil
+        flavor: fail
     spec:
       containers:
         - name: main
           image: ghcr.io/olix0r/schlep:v0.3.2
           args:
             - server
-            - --config=/evil.json
+            - --config=/fail.json
           ports:
             - containerPort: 8080
           volumeMounts:
             - name: config
-              mountPath: /evil.json
-              subPath: evil.json
+              mountPath: /fail.json
+              subPath: fail.json
       volumes:
         - name: config
           configMap:
             name: server
             items:
-              - key: evil.json
-                path: evil.json
+              - key: fail.json
+                path: fail.json
 ...
 ---
-kind: Service
-apiVersion: v1
+kind: Deployment
+apiVersion: apps/v1
 metadata:
-  name: schlep
+  name: server-slow
   namespace: schlep
   labels:
     app: schlep
     role: server
+    flavor: slow
 spec:
-  type: LoadBalancer
+  replicas: 1
   selector:
-    app: schlep
-    role: server
-  ports:
-    - protocol: TCP
-      port: 80
-      targetPort: 8080
-...
+    matchLabels:
+      app: schlep
+      role: server
+      flavor: slow
+  template:
+    metadata:
+      labels:
+        app: schlep
+        role: server
+        flavor: slow
+    spec:
+      containers:
+        - name: main
+          image: ghcr.io/olix0r/schlep:v0.3.2
+          args:
+            - server
+            - --config=/slow.json
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: config
+              mountPath: /slow.json
+              subPath: slow.json
+      volumes:
+        - name: config
+          configMap:
+            name: server
+            items:
+              - key: slow.json
+                path: slow.json
