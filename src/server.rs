@@ -5,7 +5,6 @@ use http_body_util::Empty;
 use hyper_util::rt::TokioExecutor;
 use rand::Rng;
 use std::{
-    convert::Infallible,
     net::{Ipv4Addr, Ipv6Addr, SocketAddr},
     path::PathBuf,
 };
@@ -90,7 +89,7 @@ async fn serve<B>(
     req: hyper::Request<B>,
     mut params: Params,
     tx: SummaryTxRsp,
-) -> Result<hyper::Response<Empty<Bytes>>, Infallible> {
+) -> Result<hyper::Response<Empty<Bytes>>> {
     let mut status = hyper::StatusCode::NO_CONTENT;
 
     if let Some(q) = req.uri().query() {
@@ -139,12 +138,10 @@ async fn serve<B>(
 
     tx.response(status, time::Instant::now());
 
-    Ok::<_, Infallible>(
-        hyper::Response::builder()
-            .status(status)
-            .body(Empty::<Bytes>::default())
-            .unwrap(),
-    )
+    Ok(hyper::Response::builder()
+        .status(status)
+        .body(Empty::<Bytes>::default())
+        .unwrap())
 }
 
 fn gen_sleep(
