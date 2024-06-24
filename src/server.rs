@@ -158,9 +158,9 @@ fn gen_sleep(
     time::Duration::from_secs_f64(if r < 0.5 {
         (r / 0.5) * sleep_p50
     } else if r < 0.9 {
-        sleep_p50 + (r / 0.9) * (sleep_p90 - sleep_p50)
+        (r / 0.9) * sleep_p90
     } else {
-        sleep_p90 + r * (sleep_p99 - sleep_p90)
+        r * sleep_p99
     })
 }
 

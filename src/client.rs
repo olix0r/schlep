@@ -10,7 +10,7 @@ use crate::summary::{self, SummaryTx};
 
 #[derive(Clone, Debug, clap::Parser)]
 pub struct Args {
-    #[arg(short, long, default_value = "localhost:8080")]
+    #[arg()]
     address: String,
 
     #[arg(long, default_value = "1.0")]

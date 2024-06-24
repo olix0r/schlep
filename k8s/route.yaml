@@ -6,8 +6,9 @@ metadata:
   namespace: schlep
   annotations:
     retry.linkerd.io/http: 5xx
-    # retry.linkerd.io/limit: "2"
-    # retry.linkerd.io/timeout: 80ms
+    retry.linkerd.io/limit: "2"
+    retry.linkerd.io/timeout: 500ms
+    # timeout.linkerd.io/stream: 850ms
 spec:
   parentRefs:
     - name: schlep

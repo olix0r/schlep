@@ -7,6 +7,9 @@ metadata:
   labels:
     app: schlep
     role: server
+  # annotations:
+  #   balancer.linkerd.io/failure-accrual: "consecutive"
+  #   balancer.linkerd.io/failure-accrual-consecutive-max-failures: "3"
 spec:
   type: LoadBalancer
   selector:
@@ -34,13 +37,13 @@ data:
     }
   fail.json: |
     {
-      "fail-rate": 0.8,
+      "fail-rate": 0.1,
     }
   slow.json: |
     {
       "sleep-p50": 0.1,
-      "sleep-p90": 0.8,
-      "sleep-p99": 2.0,
+      "sleep-p90": 0.3,
+      "sleep-p99": 1.0,
     }
 ...
 ---

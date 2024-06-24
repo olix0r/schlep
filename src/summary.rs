@@ -158,8 +158,12 @@ impl SummaryTx {
 }
 
 impl SummaryTxRsp {
-    pub fn response(self, status: hyper::StatusCode, end: time::Instant) {
-        if let Some(tx) = self.tx {
+    pub fn response(mut self, status: hyper::StatusCode, end: time::Instant) {
+        self.respond(status, end);
+    }
+
+    fn respond(&mut self, status: hyper::StatusCode, end: time::Instant) {
+        if let Some(tx) = self.tx.take() {
             if tx
                 .try_send(Event::Response {
                     status,
@@ -171,6 +175,15 @@ impl SummaryTxRsp {
                 tracing::error!("Response channel full");
             }
         }
+    }
+}
+
+impl Drop for SummaryTxRsp {
+    fn drop(&mut self) {
+        self.respond(
+            hyper::StatusCode::INTERNAL_SERVER_ERROR,
+            time::Instant::now(),
+        )
     }
 }
 
