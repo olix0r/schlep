@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
+use tracing::{info_span, Instrument};
 
 mod client;
 mod server;
@@ -32,6 +33,7 @@ async fn main() -> Result<()> {
     } = Args::try_parse()?;
 
     log_format.try_init(log)?;
+    let host = std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string());
 
     let (shutdown, handle) = kubert::shutdown::sigint_or_sigterm()?;
     tokio::spawn(async move {
@@ -42,8 +44,16 @@ async fn main() -> Result<()> {
 
     let run = async move {
         match command {
-            Cmd::Server(args) => server::run(args).await,
-            Cmd::Client(args) => client::run(args).await,
+            Cmd::Server(args) => {
+                server::run(args)
+                    .instrument(info_span!("server", %host))
+                    .await
+            }
+            Cmd::Client(args) => {
+                client::run(args)
+                    .instrument(info_span!("client", %host))
+                    .await
+            }
         }
     };
 

@@ -32,7 +32,6 @@ struct Params {
     sleep_p99: f64,
 }
 
-#[tracing::instrument(name = "server", skip_all, err)]
 pub async fn run(
     Args {
         port,
