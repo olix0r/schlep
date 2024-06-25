@@ -25,7 +25,7 @@ pub struct SummaryTxRsp {
 enum Event {
     Request(time::Instant),
     Response {
-        status: hyper::StatusCode,
+        status: Option<hyper::StatusCode>,
         elapsed: time::Duration,
         time: time::Instant,
     },
@@ -118,7 +118,7 @@ fn summarize(
                 load.avg.add(load.in_flight.into(), time);
                 load.in_flight -= 1;
                 durations.saturating_record(elapsed.as_millis() as u64);
-                if status.is_success() {
+                if status.map_or(true, |s| s.is_success()) {
                     success += 1;
                 }
                 total += 1;
@@ -159,10 +159,10 @@ impl SummaryTx {
 
 impl SummaryTxRsp {
     pub fn response(mut self, status: hyper::StatusCode, end: time::Instant) {
-        self.respond(status, end);
+        self.respond(Some(status), end);
     }
 
-    fn respond(&mut self, status: hyper::StatusCode, end: time::Instant) {
+    fn respond(&mut self, status: Option<hyper::StatusCode>, end: time::Instant) {
         if let Some(tx) = self.tx.take() {
             if tx
                 .try_send(Event::Response {
@@ -180,10 +180,7 @@ impl SummaryTxRsp {
 
 impl Drop for SummaryTxRsp {
     fn drop(&mut self) {
-        self.respond(
-            hyper::StatusCode::INTERNAL_SERVER_ERROR,
-            time::Instant::now(),
-        )
+        self.respond(None, time::Instant::now())
     }
 }
 

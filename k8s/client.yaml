@@ -26,10 +26,6 @@ spec:
           image: ghcr.io/olix0r/schlep:v0.3.4
           args:
             - client
-            - --address=schlep:80
-            - --rate=100
-            - --sleep-p50=0.025
-            - --sleep-p90=0.05
-            - --sleep-p99=0.25
-            - --fail-rate=0.05
+            - --rate=1000
+            - schlep:80
 ...
