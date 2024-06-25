@@ -5,6 +5,7 @@ use tracing::Instrument;
 pub struct Summary {
     total: u64,
     success_rate: f64,
+    cancel_rate: f64,
     load: f64,
     p50: time::Duration,
     p90: time::Duration,
@@ -65,6 +66,7 @@ pub fn spawn(interval: time::Duration) -> SummaryTx {
                 let Ok(Summary {
                     total,
                     success_rate,
+                    cancel_rate,
                     load,
                     p50,
                     p90,
@@ -75,8 +77,9 @@ pub fn spawn(interval: time::Duration) -> SummaryTx {
                 };
                 tracing::info!(
                     target: "schlep",
-                    "rsps={total:<5}  ok={:04.1}%  load={:04.01}  p50={:.03}  p90={:.03}  p99={:.03}",
+                    "rsps={total:<5}  ok={:04.1}% x={:04.1}  load={:04.01}  p50={:.03}  p90={:.03}  p99={:.03}",
                     success_rate * 100.0,
+                    cancel_rate * 100.0,
                     load,
                     p50.as_secs_f64(),
                     p90.as_secs_f64(),
@@ -95,7 +98,7 @@ fn summarize(
     durations: &mut hdrhistogram::Histogram<u64>,
     load: &mut LoadAvg,
 ) -> Result<Summary> {
-    let (mut total, mut success) = (0, 0);
+    let (mut total, mut success, mut cancel) = (0, 0, 0);
 
     loop {
         let ev = match rx.try_recv() {
@@ -118,15 +121,18 @@ fn summarize(
                 load.avg.add(load.in_flight.into(), time);
                 load.in_flight -= 1;
                 durations.saturating_record(elapsed.as_millis() as u64);
-                if status.map_or(true, |s| s.is_success()) {
-                    success += 1;
+                match status {
+                    Some(s) if s.is_success() => success += 1,
+                    Some(_) => {}
+                    None => cancel += 1,
                 }
                 total += 1;
             }
         }
     }
 
-    let success_rate = success as f64 / total as f64;
+    let cancel_rate = cancel as f64 / total as f64;
+    let success_rate = success as f64 / (total - cancel) as f64;
     let p50 = durations.value_at_quantile(0.5);
     let p90 = durations.value_at_quantile(0.9);
     let p99 = durations.value_at_quantile(0.99);
@@ -136,6 +142,7 @@ fn summarize(
     Ok(Summary {
         total,
         success_rate,
+        cancel_rate,
         load: load.avg.get(),
         p50: time::Duration::from_millis(p50),
         p90: time::Duration::from_millis(p90),
