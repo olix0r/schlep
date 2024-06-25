@@ -77,13 +77,13 @@ pub fn spawn(interval: time::Duration) -> SummaryTx {
                 };
                 tracing::info!(
                     target: "schlep",
-                    "rsps={total:5}  ok={:5.1}%  x={:5.1}  load={:4.01}  p50={:.03} p90={:.03} p99={:.03}",
-                    success_rate * 100.0,
-                    cancel_rate * 100.0,
-                    load,
-                    p50.as_secs_f64(),
-                    p90.as_secs_f64(),
-                    p99.as_secs_f64()
+                    rsps = total,
+                    ok = %format_args!("{:.1}", success_rate * 100.0),
+                    x = %format_args!("{:.1}", cancel_rate * 100.0),
+                    load = %format_args!("{:.01}", cancel_rate * load),
+                    p50 = %format_args!("{:.03}", p50.as_secs_f64()),
+                    p90 = %format_args!("{:.03}", p90.as_secs_f64()),
+                    p99 = %format_args!("{:.03}", p99.as_secs_f64()),
                 );
             }
         }
