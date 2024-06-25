@@ -75,7 +75,7 @@ pub fn spawn(interval: time::Duration) -> SummaryTx {
                 };
                 tracing::info!(
                     target: "schlep",
-                    "rsps={total:<5}  ok={:03.1}%  load={:04.01}  p50={:.03}  p90={:.03}  p99={:.03}",
+                    "rsps={total:<5}  ok={:04.1}%  load={:04.01}  p50={:.03}  p90={:.03}  p99={:.03}",
                     success_rate * 100.0,
                     load,
                     p50.as_secs_f64(),
