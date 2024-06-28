@@ -1,7 +1,6 @@
 use anyhow::Result;
 use bytes::Bytes;
-use http_body_util::Empty;
-use hyper_util::rt::{TokioExecutor, TokioIo};
+use http_body_util::{BodyExt, Empty};
 use std::net::SocketAddr;
 use tokio::time;
 use tracing::{info_span, Instrument};
@@ -78,9 +77,7 @@ async fn connect(
     let peer = conn.peer_addr()?;
 
     tracing::info!(%address, srv.addr = %peer, "Connected");
-    let (client, conn) = hyper::client::conn::http2::Builder::new(TokioExecutor::new())
-        .handshake::<_, Empty<Bytes>>(TokioIo::new(conn))
-        .await?;
+    let (client, conn) = http2_handshake(conn).await?;
 
     tokio::spawn(
         async move {
@@ -92,6 +89,30 @@ async fn connect(
     );
 
     Ok((client, peer))
+}
+
+type Body = http_body_util::Empty<hyper::body::Bytes>;
+
+fn request(uri: hyper::Uri) -> hyper::Request<Body> {
+    hyper::Request::builder()
+        .uri(uri)
+        .body(Body::default())
+        .expect("Request is valid")
+}
+
+async fn http2_handshake(
+    conn: tokio::net::TcpStream,
+) -> hyper::Result<(
+    hyper::client::conn::http2::SendRequest<Empty<Bytes>>,
+    hyper::client::conn::http2::Connection<
+        hyper_util::rt::TokioIo<tokio::net::TcpStream>,
+        Body,
+        hyper_util::rt::TokioExecutor,
+    >,
+)> {
+    hyper::client::conn::http2::Builder::new(hyper_util::rt::TokioExecutor::new())
+        .handshake::<_, Body>(hyper_util::rt::TokioIo::new(conn))
+        .await
 }
 
 async fn dispatch(
@@ -107,10 +128,7 @@ async fn dispatch(
         timer.tick().await;
         tracing::trace!("Tick");
 
-        let req = hyper::Request::builder()
-            .uri(uri.clone())
-            .body(Empty::<Bytes>::default())
-            .unwrap();
+        let req = request(uri.clone());
 
         let start = time::Instant::now();
         if let Err(e) = client.ready().await {
@@ -125,7 +143,7 @@ async fn dispatch(
             let res = call.await;
             let elapsed = start.elapsed();
             let status = match res {
-                Ok(rsp) => rsp.status(),
+                Ok(rsp) => drain(rsp).await,
                 Err(error) => {
                     tracing::warn!(%error, "Failed");
                     hyper::StatusCode::INTERNAL_SERVER_ERROR
@@ -135,4 +153,14 @@ async fn dispatch(
             summary.response(status, time::Instant::now());
         });
     }
+}
+
+async fn drain(rsp: hyper::Response<hyper::body::Incoming>) -> hyper::StatusCode {
+    let (head, mut body) = rsp.into_parts();
+    while let Some(res) = body.frame().await {
+        if res.is_err() {
+            return hyper::StatusCode::INTERNAL_SERVER_ERROR;
+        }
+    }
+    head.status
 }

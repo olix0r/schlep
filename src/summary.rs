@@ -80,7 +80,7 @@ pub fn spawn(interval: time::Duration) -> SummaryTx {
                     rsps = total,
                     ok = %format_args!("{:.1}", success_rate * 100.0),
                     x = %format_args!("{:.1}", cancel_rate * 100.0),
-                    load = %format_args!("{:.01}", cancel_rate * load),
+                    load = %format_args!("{:.01}", load),
                     p50 = %format_args!("{:.03}", p50.as_secs_f64()),
                     p90 = %format_args!("{:.03}", p90.as_secs_f64()),
                     p99 = %format_args!("{:.03}", p99.as_secs_f64()),
