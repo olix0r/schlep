@@ -72,7 +72,7 @@ spec:
     spec:
       containers:
         - name: main
-          image: ghcr.io/olix0r/schlep:v0.3.7
+          image: ghcr.io/olix0r/schlep:v0.3.8
           args:
             - server
             - --config=/good.json
@@ -116,7 +116,7 @@ spec:
     spec:
       containers:
         - name: main
-          image: ghcr.io/olix0r/schlep:v0.3.7
+          image: ghcr.io/olix0r/schlep:v0.3.8
           args:
             - server
             - --config=/fail.json
@@ -160,7 +160,7 @@ spec:
     spec:
       containers:
         - name: main
-          image: ghcr.io/olix0r/schlep:v0.3.7
+          image: ghcr.io/olix0r/schlep:v0.3.8
           args:
             - server
             - --config=/slow.json
