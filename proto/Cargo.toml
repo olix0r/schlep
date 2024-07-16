@@ -1,0 +1,14 @@
+[package]
+name = "schlep-proto"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+http = { workspace = true }
+prost = { workspace = true }
+tonic = { workspace = true }
+# prost-types = { workspace = true }
+
+[dev-dependencies]
+tonic-build = { workspace = true }

@@ -1,9 +1,10 @@
-use crate::summary::{self, SummaryTxRsp};
+use crate::summary::{self, SummaryTx, SummaryTxRsp};
 use anyhow::Result;
 use bytes::Bytes;
 use http_body_util::Empty;
 use hyper_util::rt::TokioExecutor;
 use rand::Rng;
+use schlep_proto::Ack;
 use std::{
     net::{Ipv4Addr, Ipv6Addr, SocketAddr},
     path::PathBuf,
@@ -30,6 +31,12 @@ struct Params {
     sleep_p50: f64,
     sleep_p90: f64,
     sleep_p99: f64,
+}
+
+#[derive(Clone, Debug)]
+struct GrpcServer {
+    params: watch::Receiver<Params>,
+    summary: SummaryTx,
 }
 
 pub async fn run(
@@ -63,6 +70,10 @@ pub async fn run(
                 continue;
             }
         };
+        let grpc = schlep_proto::schlep_server::SchlepServer::new(GrpcServer {
+            params: params.clone(),
+            summary: summary.clone(),
+        });
         tokio::spawn(
             server
                 .serve_connection(
@@ -70,12 +81,29 @@ pub async fn run(
                     hyper::service::service_fn({
                         let params = params.clone();
                         let summary = summary.clone();
+                        let grpc = grpc.clone();
                         move |req| {
-                            serve(
-                                req,
-                                (*params.borrow()).clone(),
-                                summary.request(time::Instant::now()),
-                            )
+                            let params = params.clone();
+                            let summary = summary.clone();
+                            let grpc = grpc.clone();
+                            async move {
+                                use futures::prelude::*;
+                                use tower::ServiceExt;
+                                if let Some(ct) = req.headers().get("content-type") {
+                                    if ct.as_bytes()[0..16] == *b"application/grpc" {
+                                        tracing::trace!("grpc");
+                                        return grpc
+                                            .clone()
+                                            .oneshot(req.map(tonic::body::boxed))
+                                            .err_into::<anyhow::Error>()
+                                            .await;
+                                    }
+                                }
+                                let p = (*params.borrow()).clone();
+                                serve(req, p, summary.request(time::Instant::now()))
+                                    .map_ok(|rsp| rsp.map(tonic::body::boxed))
+                                    .await
+                            }
                         }
                     }),
                 )
@@ -135,8 +163,7 @@ async fn serve<B>(
         status = hyper::StatusCode::INTERNAL_SERVER_ERROR;
     }
 
-    tx.response(status, time::Instant::now());
-
+    tx.response(status.is_success(), time::Instant::now());
     Ok(hyper::Response::builder()
         .status(status)
         .body(Empty::<Bytes>::default())
@@ -230,4 +257,40 @@ async fn read(path: &PathBuf) -> Result<Params> {
         return Ok(params);
     }
     serde_yml::from_str(&data).map_err(Into::into)
+}
+
+#[tonic::async_trait]
+impl schlep_proto::schlep_server::Schlep for GrpcServer {
+    async fn get(
+        &self,
+        req: tonic::Request<schlep_proto::Params>,
+    ) -> Result<tonic::Response<Ack>, tonic::Status> {
+        let summary = self.summary.request(time::Instant::now());
+        let mut params = self.params.borrow().clone();
+        let schlep_proto::Params {
+            fail_rate,
+            sleep_p50,
+            sleep_p90,
+            sleep_p99,
+        } = req.into_inner();
+        params.fail_rate += f64::from(fail_rate);
+        params.sleep_p50 += f64::from(sleep_p50);
+        params.sleep_p90 += f64::from(sleep_p90);
+        params.sleep_p99 += f64::from(sleep_p99);
+        tracing::debug!(?params);
+
+        let sleep = gen_sleep(&params);
+        if sleep > time::Duration::ZERO {
+            tracing::debug!(?sleep);
+            time::sleep(sleep).await;
+        }
+
+        if params.fail_rate > 0.0 && rand::thread_rng().gen::<f64>() < params.fail_rate {
+            summary.response(false, time::Instant::now());
+            return Err(tonic::Status::internal("simulated failure"));
+        }
+
+        summary.response(true, time::Instant::now());
+        Ok(tonic::Response::new(Ack {}))
+    }
 }

@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package schlep;
+
+message Params {
+  float fail_rate = 1;
+  float sleep_p50 = 2;
+  float sleep_p90 = 3;
+  float sleep_p99 = 4;
+}
+
+message Ack {}
+
+service Schlep {
+    rpc Get(Params) returns (Ack) {}
+}
