@@ -1,7 +1,7 @@
 use crate::summary::{self, SummaryTx, SummaryTxRsp};
 use anyhow::Result;
 use bytes::Bytes;
-use http_body_util::Empty;
+use http_body_util::Full;
 use hyper_util::rt::TokioExecutor;
 use rand::Rng;
 use schlep_proto::Ack;
@@ -31,6 +31,9 @@ struct Params {
     sleep_p50: f64,
     sleep_p90: f64,
     sleep_p99: f64,
+    data_p50: u32,
+    data_p90: u32,
+    data_p99: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -116,44 +119,52 @@ async fn serve<B>(
     req: hyper::Request<B>,
     mut params: Params,
     tx: SummaryTxRsp,
-) -> Result<hyper::Response<Empty<Bytes>>> {
+) -> Result<hyper::Response<Full<Bytes>>> {
     let mut status = hyper::StatusCode::NO_CONTENT;
 
     if let Some(q) = req.uri().query() {
-        for pair in q.split('&') {
-            if let Some((key, val)) = pair.split_once('=') {
+        for param in q.split('&') {
+            if let Some((key, val)) = param.split_once('=') {
                 if key.eq_ignore_ascii_case("fail-rate") {
                     if let Ok(f) = val.parse::<f64>() {
-                        if f > 0.0 {
-                            params.fail_rate += f;
-                        }
+                        params.fail_rate += f;
                     }
-                } else if key.eq_ignore_ascii_case("p50") {
+                } else if key.eq_ignore_ascii_case("sleep.p50") {
                     if let Ok(v) = val.parse::<f64>() {
-                        if v > 0.0 {
-                            params.sleep_p50 += v;
-                        }
+                        params.sleep_p50 += v;
                     }
-                } else if key.eq_ignore_ascii_case("p90") {
+                } else if key.eq_ignore_ascii_case("sleep.p90") {
                     if let Ok(v) = val.parse::<f64>() {
-                        if v > 0.0 {
-                            params.sleep_p90 += v;
-                        }
+                        params.sleep_p90 += v;
                     }
-                } else if key.eq_ignore_ascii_case("p99") {
+                } else if key.eq_ignore_ascii_case("sleep.p99") {
                     if let Ok(v) = val.parse::<f64>() {
-                        if v > 0.0 {
-                            params.sleep_p99 += v;
-                        }
+                        params.sleep_p99 += v;
                     }
+                } else if key.eq_ignore_ascii_case("data.p50") {
+                    if let Ok(v) = val.parse::<u32>() {
+                        params.data_p50 += v;
+                    }
+                } else if key.eq_ignore_ascii_case("data.p90") {
+                    if let Ok(v) = val.parse::<u32>() {
+                        params.data_p90 += v;
+                    }
+                } else if key.eq_ignore_ascii_case("data.p99") {
+                    if let Ok(v) = val.parse::<u32>() {
+                        params.data_p99 += v;
+                    }
+                } else {
+                    tracing::debug!(key, val, "Unknown query parameter");
                 }
+            } else {
+                tracing::debug!(param, "Unknown query parameter");
             }
         }
     }
 
     tracing::debug!(?params);
 
-    let sleep = gen_sleep(&params);
+    let sleep = params.gen_sleep();
     if sleep > time::Duration::ZERO {
         tracing::debug!(?sleep);
         time::sleep(sleep).await;
@@ -163,31 +174,92 @@ async fn serve<B>(
         status = hyper::StatusCode::INTERNAL_SERVER_ERROR;
     }
 
+    let body = Bytes::from(params.gen_bytes());
+
     tx.response(status.is_success(), time::Instant::now());
     Ok(hyper::Response::builder()
         .status(status)
-        .body(Empty::<Bytes>::default())
+        .header("content-type", "text/plain")
+        .body(Full::new(body))
         .unwrap())
 }
 
-fn gen_sleep(
-    Params {
-        sleep_p50,
-        sleep_p90,
-        sleep_p99,
-        ..
-    }: &Params,
-) -> time::Duration {
-    let mut rng = rand::thread_rng();
-    let r = rng.gen::<f64>();
+impl Params {
+    fn gen_sleep(&self) -> time::Duration {
+        let Self {
+            sleep_p50,
+            sleep_p90,
+            sleep_p99,
+            ..
+        } = self;
+        let mut rng = rand::thread_rng();
+        let r = rng.gen::<f64>();
 
-    time::Duration::from_secs_f64(if r < 0.5 {
-        (r / 0.5) * sleep_p50
-    } else if r < 0.9 {
-        (r / 0.9) * sleep_p90
-    } else {
-        r * sleep_p99
-    })
+        time::Duration::from_secs_f64(if r < 0.5 {
+            (r / 0.5) * sleep_p50
+        } else if r < 0.9 {
+            (r / 0.9) * sleep_p90
+        } else {
+            r * sleep_p99
+        })
+    }
+
+    fn gen_bytes(&self) -> Vec<u8> {
+        let Self {
+            data_p50,
+            data_p90,
+            data_p99,
+            ..
+        } = self;
+        struct LowercaseAlphanumeric;
+
+        // Modified from `rand::distributions::Alphanumeric`
+        //
+        // Copyright 2018 Developers of the Rand project
+        // Copyright (c) 2014 The Rust Project Developers
+        //
+        // Licensed under the Apache License, Version 2.0 (the "License");
+        // you may not use this file except in compliance with the License.
+        // You may obtain a copy of the License at
+        //
+        //     http://www.apache.org/licenses/LICENSE-2.0
+        //
+        // Unless required by applicable law or agreed to in writing, software
+        // distributed under the License is distributed on an "AS IS" BASIS,
+        // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+        // See the License for the specific language governing permissions and
+        // limitations under the License.
+        impl rand::distributions::Distribution<u8> for LowercaseAlphanumeric {
+            fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> u8 {
+                const RANGE: u32 = 26 + 10;
+                const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
+                loop {
+                    let var = rng.next_u32() >> (32 - 6);
+                    if var < RANGE {
+                        return CHARSET[var as usize];
+                    }
+                }
+            }
+        }
+
+        let mut rng = rand::thread_rng();
+        let r = rng.gen::<f64>();
+
+        const MAX: usize = 1024 * 1024;
+        let len = MAX.min(
+            if r < 0.5 {
+                (r / 0.5) * (*data_p50 as f64)
+            } else if r < 0.9 {
+                (r / 0.9) * (*data_p90 as f64)
+            } else {
+                r * (*data_p99 as f64)
+            }
+            .floor() as usize,
+        );
+        tracing::trace!(?len, ?r, "gen_bytes");
+
+        rng.sample_iter(&LowercaseAlphanumeric).take(len).collect()
+    }
 }
 
 async fn spawn_config(path: Option<PathBuf>) -> Result<watch::Receiver<Params>> {
@@ -269,17 +341,23 @@ impl schlep_proto::schlep_server::Schlep for GrpcServer {
         let mut params = self.params.borrow().clone();
         let schlep_proto::Params {
             fail_rate,
-            sleep_p50,
-            sleep_p90,
-            sleep_p99,
+            sleep,
+            data,
         } = req.into_inner();
         params.fail_rate += f64::from(fail_rate);
-        params.sleep_p50 += f64::from(sleep_p50);
-        params.sleep_p90 += f64::from(sleep_p90);
-        params.sleep_p99 += f64::from(sleep_p99);
+        if let Some(sleep) = sleep {
+            params.sleep_p50 += f64::from(sleep.p50);
+            params.sleep_p90 += f64::from(sleep.p90);
+            params.sleep_p99 += f64::from(sleep.p99);
+        }
+        if let Some(data) = data {
+            params.sleep_p50 += f64::from(data.p50);
+            params.sleep_p90 += f64::from(data.p90);
+            params.sleep_p99 += f64::from(data.p99);
+        }
         tracing::debug!(?params);
 
-        let sleep = gen_sleep(&params);
+        let sleep = params.gen_sleep();
         if sleep > time::Duration::ZERO {
             tracing::debug!(?sleep);
             time::sleep(sleep).await;
@@ -290,7 +368,10 @@ impl schlep_proto::schlep_server::Schlep for GrpcServer {
             return Err(tonic::Status::internal("simulated failure"));
         }
 
+        let data = params.gen_bytes();
+        tracing::debug!(bytes = data.len());
+
         summary.response(true, time::Instant::now());
-        Ok(tonic::Response::new(Ack {}))
+        Ok(tonic::Response::new(Ack { data }))
     }
 }

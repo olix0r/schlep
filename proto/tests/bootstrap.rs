@@ -21,11 +21,6 @@ fn bootstrap() {
 
 /// Generates protobuf bindings into the given directory
 fn generate(out_dir: &std::path::Path) {
-    // prost_build::Config::new()
-    //     .out_dir(out_dir.display().to_string())
-    //     .compile_protos(&["./schlep.proto"], &["."])
-    //     .expect("failed to compile protobuf");
-
     tonic_build::configure()
         .build_client(true)
         .build_server(true)

@@ -2,30 +2,70 @@
 kind: Deployment
 apiVersion: apps/v1
 metadata:
-  name: client
+  name: client-http
   namespace: schlep
   labels:
     app: schlep
     role: client
+    proto: http
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: schlep
       role: client
+      proto: http
   template:
     metadata:
       labels:
         app: schlep
         role: client
+        proto: http
       annotations:
         linkerd.io/inject: enabled
     spec:
       containers:
         - name: main
-          image: ghcr.io/olix0r/schlep:v0.3.9
+          image: ghcr.io/olix0r/schlep:v0.4.0
           args:
             - client
-            - --rate=1000
+            - --rate=1
             - schlep:80
+...
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: client-grpc
+  namespace: schlep
+  labels:
+    app: schlep
+    role: client
+    proto: grpc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: schlep
+      role: client
+      proto: grpc
+  template:
+    metadata:
+      labels:
+        app: schlep
+        role: client
+        proto: grpc
+      annotations:
+        linkerd.io/inject: enabled
+        config.linkerd.io/proxy-log-level: linkerd=debug,h2=debug,info
+        config.linkerd.io/proxy-log-http-headers: insecure
+    spec:
+      containers:
+        - name: main
+          image: ghcr.io/olix0r/schlep:v0.4.0
+          args:
+            - client
+            - --grpc
+            - --rate=1
+            - schlep:8080
 ...

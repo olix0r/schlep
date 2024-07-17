@@ -6,17 +6,41 @@ metadata:
   namespace: schlep
   annotations:
     retry.linkerd.io/http: 5xx
-    # retry.linkerd.io/limit: "2"
-    retry.linkerd.io/timeout: 400ms
-    timeout.linkerd.io/request: 2s
+    retry.linkerd.io/limit: "2"
+    retry.linkerd.io/timeout: 150ms
+    timeout.linkerd.io/request: 1s
 spec:
   parentRefs:
     - name: schlep
       kind: Service
       group: core
+      port: 80
   rules:
     - matches:
         - path:
             type: PathPrefix
             value: "/"
+...
+---
+kind: GRPCRoute
+apiVersion: gateway.networking.k8s.io/v1alpha2
+metadata:
+  name: schlep-default
+  namespace: schlep
+  annotations:
+    retry.linkerd.io/grpc: internal
+    retry.linkerd.io/limit: "2"
+    retry.linkerd.io/timeout: 150ms
+    timeout.linkerd.io/request: 300ms
+spec:
+  parentRefs:
+    - name: schlep
+      kind: Service
+      group: core
+      port: 8080
+  rules:
+    - matches:
+        - method:
+            service: schlep.Schlep
+            method: Get
 ...

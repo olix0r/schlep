@@ -4,13 +4,33 @@ package schlep;
 
 message Params {
   float fail_rate = 1;
-  float sleep_p50 = 2;
-  float sleep_p90 = 3;
-  float sleep_p99 = 4;
+
+  Sleep sleep = 2;
+  message Sleep {
+    float p50 = 1;
+    float p90 = 2;
+    float p99 = 3;
+  }
+
+  Data data = 3;
+  message Data {
+    uint32 p50 = 1;
+    uint32 p90 = 2;
+    uint32 p99 = 3;
+  }
 }
 
-message Ack {}
+// message StreamParams {
+//   Params init = 1;
+//   Params stream = 2;
+//   int32 frames = 3;
+// }
+
+message Ack {
+  bytes data = 1;
+}
 
 service Schlep {
-    rpc Get(Params) returns (Ack) {}
+  rpc Get(Params) returns (Ack) {}
+  // rpc GetStream(StreamParams) returns (stream Ack) {}
 }

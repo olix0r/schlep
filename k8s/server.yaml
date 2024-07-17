@@ -16,8 +16,15 @@ spec:
     app: schlep
     role: server
   ports:
-    - protocol: TCP
+    - name: http
+      appProtocol: kubernetes.io/h2c
+      protocol: TCP
       port: 80
+      targetPort: 8080
+    - name: grpc
+      appProtocol: kubernetes.io/h2c
+      protocol: TCP
+      port: 8080
       targetPort: 8080
 ...
 ---
@@ -34,13 +41,22 @@ data:
       "sleep-p50": 0.01,
       "sleep-p90": 0.1,
       "sleep-p99": 0.3,
+      "data-p50": 1000,
+      "data-p90": 100000,
+      "data-p99": 1000000,
     }
   fail.json: |
     {
       "fail-rate": 0.1,
+      "data-p50": 1000,
+      "data-p90": 100000,
+      "data-p99": 1000000,
     }
   slow.json: |
     {
+      "data-p50": 1000,
+      "data-p90": 100000,
+      "data-p99": 1000000,
       "sleep-p50": 0.1,
       "sleep-p90": 0.3,
       "sleep-p99": 1.0,
@@ -72,7 +88,7 @@ spec:
     spec:
       containers:
         - name: main
-          image: ghcr.io/olix0r/schlep:v0.3.9
+          image: ghcr.io/olix0r/schlep:v0.4.0
           args:
             - server
             - --config=/good.json
@@ -116,7 +132,7 @@ spec:
     spec:
       containers:
         - name: main
-          image: ghcr.io/olix0r/schlep:v0.3.9
+          image: ghcr.io/olix0r/schlep:v0.4.0
           args:
             - server
             - --config=/fail.json
@@ -160,7 +176,7 @@ spec:
     spec:
       containers:
         - name: main
-          image: ghcr.io/olix0r/schlep:v0.3.9
+          image: ghcr.io/olix0r/schlep:v0.4.0
           args:
             - server
             - --config=/slow.json

@@ -4,21 +4,45 @@
 pub struct Params {
     #[prost(float, tag = "1")]
     pub fail_rate: f32,
-    #[prost(float, tag = "2")]
-    pub sleep_p50: f32,
-    #[prost(float, tag = "3")]
-    pub sleep_p90: f32,
-    #[prost(float, tag = "4")]
-    pub sleep_p99: f32,
+    #[prost(message, optional, tag = "2")]
+    pub sleep: ::core::option::Option<params::Sleep>,
+    #[prost(message, optional, tag = "3")]
+    pub data: ::core::option::Option<params::Data>,
+}
+/// Nested message and enum types in `Params`.
+pub mod params {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+    pub struct Sleep {
+        #[prost(float, tag = "1")]
+        pub p50: f32,
+        #[prost(float, tag = "2")]
+        pub p90: f32,
+        #[prost(float, tag = "3")]
+        pub p99: f32,
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+    #[derive(Clone, Copy, PartialEq, ::prost::Message)]
+    pub struct Data {
+        #[prost(uint32, tag = "1")]
+        pub p50: u32,
+        #[prost(uint32, tag = "2")]
+        pub p90: u32,
+        #[prost(uint32, tag = "3")]
+        pub p99: u32,
+    }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct Ack {}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Ack {
+    #[prost(bytes = "vec", tag = "1")]
+    pub data: ::prost::alloc::vec::Vec<u8>,
+}
 /// Generated client implementations.
 pub mod schlep_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
-    use tonic::codegen::http::Uri;
     use tonic::codegen::*;
+    use tonic::codegen::http::Uri;
     #[derive(Debug, Clone)]
     pub struct SchlepClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -62,8 +86,9 @@ pub mod schlep_client {
                     <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
                 >,
             >,
-            <T as tonic::codegen::Service<http::Request<tonic::body::BoxBody>>>::Error:
-                Into<StdError> + Send + Sync,
+            <T as tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+            >>::Error: Into<StdError> + Send + Sync,
         {
             SchlepClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -102,17 +127,19 @@ pub mod schlep_client {
             &mut self,
             request: impl tonic::IntoRequest<super::Params>,
         ) -> std::result::Result<tonic::Response<super::Ack>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::new(
-                    tonic::Code::Unknown,
-                    format!("Service was not ready: {}", e.into()),
-                )
-            })?;
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static("/schlep.Schlep/Get");
             let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("schlep.Schlep", "Get"));
+            req.extensions_mut().insert(GrpcMethod::new("schlep.Schlep", "Get"));
             self.inner.unary(req, path, codec).await
         }
     }
@@ -150,7 +177,10 @@ pub mod schlep_server {
                 max_encoding_message_size: None,
             }
         }
-        pub fn with_interceptor<F>(inner: T, interceptor: F) -> InterceptedService<Self, F>
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> InterceptedService<Self, F>
         where
             F: tonic::service::Interceptor,
         {
@@ -205,12 +235,21 @@ pub mod schlep_server {
                 "/schlep.Schlep/Get" => {
                     #[allow(non_camel_case_types)]
                     struct GetSvc<T: Schlep>(pub Arc<T>);
-                    impl<T: Schlep> tonic::server::UnaryService<super::Params> for GetSvc<T> {
+                    impl<T: Schlep> tonic::server::UnaryService<super::Params>
+                    for GetSvc<T> {
                         type Response = super::Ack;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
-                        fn call(&mut self, request: tonic::Request<super::Params>) -> Self::Future {
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::Params>,
+                        ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut = async move { <T as Schlep>::get(&inner, request).await };
+                            let fut = async move {
+                                <T as Schlep>::get(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -236,17 +275,21 @@ pub mod schlep_server {
                     };
                     Box::pin(fut)
                 }
-                _ => Box::pin(async move {
-                    Ok(http::Response::builder()
-                        .status(200)
-                        .header("grpc-status", tonic::Code::Unimplemented as i32)
-                        .header(
-                            http::header::CONTENT_TYPE,
-                            tonic::metadata::GRPC_CONTENT_TYPE,
+                _ => {
+                    Box::pin(async move {
+                        Ok(
+                            http::Response::builder()
+                                .status(200)
+                                .header("grpc-status", tonic::Code::Unimplemented as i32)
+                                .header(
+                                    http::header::CONTENT_TYPE,
+                                    tonic::metadata::GRPC_CONTENT_TYPE,
+                                )
+                                .body(empty_body())
+                                .unwrap(),
                         )
-                        .body(empty_body())
-                        .unwrap())
-                }),
+                    })
+                }
             }
         }
     }

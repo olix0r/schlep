@@ -22,17 +22,60 @@ pub struct Args {
     #[arg(long, default_value = "0.0")]
     fail_rate: f64,
 
-    #[arg(long, default_value = "0.0")]
-    sleep_p50: f64,
+    #[arg(long, default_value = "0.0,0.0,0.0")]
+    sleep: Sleep,
 
-    #[arg(long, default_value = "0.0")]
-    sleep_p90: f64,
-
-    #[arg(long, default_value = "0.0")]
-    sleep_p99: f64,
+    #[arg(long, default_value = "0,0,0")]
+    data: Data,
 
     #[arg(long, short)]
     grpc: bool,
+}
+
+#[derive(Clone, Debug)]
+struct Sleep {
+    p50: f64,
+    p90: f64,
+    p99: f64,
+}
+
+impl std::str::FromStr for Sleep {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        let mut parts = s.split(',').collect::<Vec<_>>();
+        if parts.len() != 3 {
+            anyhow::bail!("expected p50:p90:p99");
+        }
+        Ok(Self {
+            p99: parts.pop().unwrap_or_default().parse()?,
+            p90: parts.pop().unwrap_or_default().parse()?,
+            p50: parts.pop().unwrap_or_default().parse()?,
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
+struct Data {
+    p50: u32,
+    p90: u32,
+    p99: u32,
+}
+
+impl std::str::FromStr for Data {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        let mut parts = s.split(',').collect::<Vec<_>>();
+        if parts.len() != 3 {
+            anyhow::bail!("expected p50:p90:p99");
+        }
+        Ok(Self {
+            p99: parts.pop().unwrap_or_default().parse()?,
+            p90: parts.pop().unwrap_or_default().parse()?,
+            p50: parts.pop().unwrap_or_default().parse()?,
+        })
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -43,9 +86,8 @@ pub async fn run(
         address,
         rate,
         fail_rate,
-        sleep_p50,
-        sleep_p90,
-        sleep_p99,
+        sleep,
+        data,
         grpc,
     }: Args,
 ) -> Result<()> {
@@ -53,16 +95,27 @@ pub async fn run(
         anyhow::bail!("--rate must be greater than zero");
     }
 
-    let uri = format!(
-        "http://{address}/?p50={sleep_p50}&p90={sleep_p90}&p99={sleep_p99}&fail-rate={fail_rate}"
-    )
-    .parse::<hyper::Uri>()?;
+    let uri = {
+        format!(
+            "http://{address}/?fail-rate={fail_rate}&sleep.p50={}&sleep.p90={}&sleep.p99={}&data.p50={}&data.p90={}&data.p99={}",
+            sleep.p50, sleep.p90, sleep.p99,
+            data.p50, data.p90, data.p99,
+        )
+        .parse::<hyper::Uri>()?
+    };
 
     let req = schlep_proto::Params {
         fail_rate: fail_rate as f32,
-        sleep_p50: sleep_p50 as f32,
-        sleep_p90: sleep_p90 as f32,
-        sleep_p99: sleep_p99 as f32,
+        sleep: Some(schlep_proto::params::Sleep {
+            p50: sleep.p50 as f32,
+            p90: sleep.p90 as f32,
+            p99: sleep.p99 as f32,
+        }),
+        data: Some(schlep_proto::params::Data {
+            p50: data.p50,
+            p90: data.p90,
+            p99: data.p99,
+        }),
     };
 
     let summary = summary::spawn(time::Duration::from_secs(10));
