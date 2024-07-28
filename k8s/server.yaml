@@ -2,7 +2,7 @@
 kind: Service
 apiVersion: v1
 metadata:
-  name: schlep
+  name: api
   namespace: schlep
   labels:
     app: schlep
@@ -36,75 +36,85 @@ metadata:
   labels:
     app: schlep
 data:
-  good.json: |
+  okay.json: |
     {
-      "sleep-p50": 0.01,
-      "sleep-p90": 0.1,
-      "sleep-p99": 0.3,
-      "data-p50": 1000,
-      "data-p90": 100000,
-      "data-p99": 1000000,
+      "sleep": {
+        "p50": 0.01,
+        "p90": 0.1,
+        "p99": 0.3,
+      },
+      "data": {
+        "p50": 500,
+        "p90": 5000,
+        "p99": 50000,
+      }
     }
   fail.json: |
     {
       "fail-rate": 0.1,
-      "data-p50": 1000,
-      "data-p90": 100000,
-      "data-p99": 1000000,
+      "data": {
+        "p50": 500,
+        "p90": 5000,
+        "p99": 50000,
+      }
     }
   slow.json: |
     {
-      "data-p50": 1000,
-      "data-p90": 100000,
-      "data-p99": 1000000,
-      "sleep-p50": 0.1,
-      "sleep-p90": 0.3,
-      "sleep-p99": 1.0,
+      "sleep": {
+        "p50": 0.1,
+        "p90": 0.3,
+        "p99": 1.0,
+      },
+      "data": {
+        "p50": 500,
+        "p90": 5000,
+        "p99": 50000,
+      }
     }
 ...
 ---
 kind: Deployment
 apiVersion: apps/v1
 metadata:
-  name: server-good
+  name: server-okay
   namespace: schlep
   labels:
     app: schlep
     role: server
-    flavor: good
+    flavor: okay
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: schlep
       role: server
-      flavor: good
+      flavor: okay
   template:
     metadata:
       labels:
         app: schlep
         role: server
-        flavor: good
+        flavor: okay
     spec:
       containers:
         - name: main
-          image: ghcr.io/olix0r/schlep:v0.4.0
+          image: ghcr.io/olix0r/schlep:v0.5.0
           args:
             - server
-            - --config=/good.json
+            - --config=/okay.json
           ports:
             - containerPort: 8080
           volumeMounts:
             - name: config
-              mountPath: /good.json
-              subPath: good.json
+              mountPath: /okay.json
+              subPath: okay.json
       volumes:
         - name: config
           configMap:
             name: server
             items:
-              - key: good.json
-                path: good.json
+              - key: okay.json
+                path: okay.json
 ...
 ---
 kind: Deployment
@@ -132,7 +142,7 @@ spec:
     spec:
       containers:
         - name: main
-          image: ghcr.io/olix0r/schlep:v0.4.0
+          image: ghcr.io/olix0r/schlep:v0.5.0
           args:
             - server
             - --config=/fail.json
@@ -176,7 +186,7 @@ spec:
     spec:
       containers:
         - name: main
-          image: ghcr.io/olix0r/schlep:v0.4.0
+          image: ghcr.io/olix0r/schlep:v0.5.0
           args:
             - server
             - --config=/slow.json

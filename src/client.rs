@@ -16,18 +16,23 @@ pub struct Args {
     #[arg()]
     address: String,
 
+    /// The rate at which requests should be sent.
     #[arg(long, default_value = "1.0")]
     rate: f64,
 
+    /// The rate at which requests should fail.
     #[arg(long, default_value = "0.0")]
     fail_rate: f64,
 
+    /// A comma-separated list of p50, p90, and p99 sleep durations in seconds.
     #[arg(long, default_value = "0.0,0.0,0.0")]
     sleep: Sleep,
 
+    /// A comma-separated list of p50, p90, and p99 data sizes in bytes.
     #[arg(long, default_value = "0,0,0")]
     data: Data,
 
+    /// Use gRPC instead of simple HTTP.
     #[arg(long, short)]
     grpc: bool,
 }

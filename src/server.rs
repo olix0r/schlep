@@ -28,12 +28,24 @@ pub struct Args {
 #[serde(default, rename_all = "kebab-case")]
 struct Params {
     fail_rate: f64,
-    sleep_p50: f64,
-    sleep_p90: f64,
-    sleep_p99: f64,
-    data_p50: u32,
-    data_p90: u32,
-    data_p99: u32,
+    sleep: SleepParams,
+    data: DataParams,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, serde::Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+struct SleepParams {
+    p50: f64,
+    p90: f64,
+    p99: f64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, serde::Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+struct DataParams {
+    p50: u32,
+    p90: u32,
+    p99: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -131,27 +143,27 @@ async fn serve<B>(
                     }
                 } else if key.eq_ignore_ascii_case("sleep.p50") {
                     if let Ok(v) = val.parse::<f64>() {
-                        params.sleep_p50 += v;
+                        params.sleep.p50 += v;
                     }
                 } else if key.eq_ignore_ascii_case("sleep.p90") {
                     if let Ok(v) = val.parse::<f64>() {
-                        params.sleep_p90 += v;
+                        params.sleep.p90 += v;
                     }
                 } else if key.eq_ignore_ascii_case("sleep.p99") {
                     if let Ok(v) = val.parse::<f64>() {
-                        params.sleep_p99 += v;
+                        params.sleep.p99 += v;
                     }
                 } else if key.eq_ignore_ascii_case("data.p50") {
                     if let Ok(v) = val.parse::<u32>() {
-                        params.data_p50 += v;
+                        params.data.p50 += v;
                     }
                 } else if key.eq_ignore_ascii_case("data.p90") {
                     if let Ok(v) = val.parse::<u32>() {
-                        params.data_p90 += v;
+                        params.data.p90 += v;
                     }
                 } else if key.eq_ignore_ascii_case("data.p99") {
                     if let Ok(v) = val.parse::<u32>() {
-                        params.data_p99 += v;
+                        params.data.p99 += v;
                     }
                 } else {
                     tracing::debug!(key, val, "Unknown query parameter");
@@ -170,11 +182,15 @@ async fn serve<B>(
         time::sleep(sleep).await;
     }
 
+    let mut body = Default::default();
     if params.fail_rate > 0.0 && rand::thread_rng().gen::<f64>() < params.fail_rate {
         status = hyper::StatusCode::INTERNAL_SERVER_ERROR;
+    } else {
+        body = Bytes::from(params.gen_bytes());
+        if !body.is_empty() {
+            status = hyper::StatusCode::OK;
+        }
     }
-
-    let body = Bytes::from(params.gen_bytes());
 
     tx.response(status.is_success(), time::Instant::now());
     Ok(hyper::Response::builder()
@@ -186,31 +202,21 @@ async fn serve<B>(
 
 impl Params {
     fn gen_sleep(&self) -> time::Duration {
-        let Self {
-            sleep_p50,
-            sleep_p90,
-            sleep_p99,
-            ..
-        } = self;
+        let Self { sleep, .. } = self;
         let mut rng = rand::thread_rng();
         let r = rng.gen::<f64>();
 
         time::Duration::from_secs_f64(if r < 0.5 {
-            (r / 0.5) * sleep_p50
+            (r / 0.5) * sleep.p50
         } else if r < 0.9 {
-            (r / 0.9) * sleep_p90
+            (r / 0.9) * sleep.p90
         } else {
-            r * sleep_p99
+            r * sleep.p99
         })
     }
 
     fn gen_bytes(&self) -> Vec<u8> {
-        let Self {
-            data_p50,
-            data_p90,
-            data_p99,
-            ..
-        } = self;
+        let Self { data, .. } = self;
         struct LowercaseAlphanumeric;
 
         // Modified from `rand::distributions::Alphanumeric`
@@ -248,11 +254,11 @@ impl Params {
         const MAX: usize = 1024 * 1024;
         let len = MAX.min(
             if r < 0.5 {
-                (r / 0.5) * (*data_p50 as f64)
+                (r / 0.5) * (data.p50 as f64)
             } else if r < 0.9 {
-                (r / 0.9) * (*data_p90 as f64)
+                (r / 0.9) * (data.p90 as f64)
             } else {
-                r * (*data_p99 as f64)
+                r * (data.p99 as f64)
             }
             .floor() as usize,
         );
@@ -346,14 +352,14 @@ impl schlep_proto::schlep_server::Schlep for GrpcServer {
         } = req.into_inner();
         params.fail_rate += f64::from(fail_rate);
         if let Some(sleep) = sleep {
-            params.sleep_p50 += f64::from(sleep.p50);
-            params.sleep_p90 += f64::from(sleep.p90);
-            params.sleep_p99 += f64::from(sleep.p99);
+            params.sleep.p50 += f64::from(sleep.p50);
+            params.sleep.p90 += f64::from(sleep.p90);
+            params.sleep.p99 += f64::from(sleep.p99);
         }
         if let Some(data) = data {
-            params.sleep_p50 += f64::from(data.p50);
-            params.sleep_p90 += f64::from(data.p90);
-            params.sleep_p99 += f64::from(data.p99);
+            params.sleep.p50 += f64::from(data.p50);
+            params.sleep.p90 += f64::from(data.p90);
+            params.sleep.p99 += f64::from(data.p99);
         }
         tracing::debug!(?params);
 

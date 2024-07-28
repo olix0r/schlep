@@ -2,7 +2,7 @@
 kind: HTTPRoute
 apiVersion: gateway.networking.k8s.io/v1beta1
 metadata:
-  name: schlep-default
+  name: api-default
   namespace: schlep
   annotations:
     retry.linkerd.io/http: 5xx
@@ -11,7 +11,7 @@ metadata:
     timeout.linkerd.io/request: 1s
 spec:
   parentRefs:
-    - name: schlep
+    - name: api
       kind: Service
       group: core
       port: 80
@@ -25,7 +25,7 @@ spec:
 kind: GRPCRoute
 apiVersion: gateway.networking.k8s.io/v1alpha2
 metadata:
-  name: schlep-default
+  name: api-get
   namespace: schlep
   annotations:
     retry.linkerd.io/grpc: internal
@@ -34,7 +34,7 @@ metadata:
     timeout.linkerd.io/request: 300ms
 spec:
   parentRefs:
-    - name: schlep
+    - name: api
       kind: Service
       group: core
       port: 8080
@@ -42,5 +42,5 @@ spec:
     - matches:
         - method:
             service: schlep.Schlep
-            method: Get
+            type: Exact
 ...
