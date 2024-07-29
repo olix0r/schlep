@@ -29,19 +29,6 @@ sequenceDiagram
     end
 ```
 
-## Quickstart
-
-```shell
-:; export PATH=$PATH:/home/code/.linkerd2/bin
-:; scurl https://run.linkerd.io/install-edge | bash
-:; linkerd check --pre
-:; linkerd install --crds | kubectl apply -f -
-:; linkerd install | kubectl apply -f -
-:; linkerd check
-:; kubectl apply -f k8s/ns.yaml
-:; kubectl apply -f k8s
-```
-
 ## Server
 
 The serves exposes (1) a gRPC service, [`schlep.Schlep`](./proto/schlep.proto),
@@ -101,6 +88,19 @@ graph LR
     httproute/schlep-default -->|port: 80| svc
     grpcroute/schlep-get -->|port: 8080| svc
   end
+```
+
+### Quickstart
+
+```shell
+:; export PATH=$PATH:/home/code/.linkerd2/bin
+:; scurl https://run.linkerd.io/install-edge | bash
+:; linkerd check --pre
+:; linkerd install --crds | kubectl apply -f -
+:; linkerd install | kubectl apply -f -
+:; linkerd check
+:; kubectl apply -f k8s/ns.yaml
+:; kubectl apply -f k8s
 ```
 
 ### Linkerd Configuration
