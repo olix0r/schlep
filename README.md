@@ -94,7 +94,7 @@ graph LR
 
 ```shell
 :; export PATH=$PATH:/home/code/.linkerd2/bin
-:; scurl https://run.linkerd.io/install-edge | bash
+:; curl -sSfL https://run.linkerd.io/install-edge | bash
 :; linkerd check --pre
 :; linkerd install --crds | kubectl apply -f -
 :; linkerd install | kubectl apply -f -
