@@ -35,17 +35,21 @@ struct Params {
 #[derive(Clone, Debug, Default, PartialEq, serde::Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 struct SleepParams {
+    min: f64,
     p50: f64,
     p90: f64,
     p99: f64,
+    max: f64,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, serde::Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 struct DataParams {
+    min: u32,
     p50: u32,
     p90: u32,
     p99: u32,
+    max: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -141,6 +145,10 @@ async fn serve<B>(
                     if let Ok(f) = val.parse::<f64>() {
                         params.fail_rate += f;
                     }
+                } else if key.eq_ignore_ascii_case("sleep.min") {
+                    if let Ok(v) = val.parse::<f64>() {
+                        params.sleep.min += v;
+                    }
                 } else if key.eq_ignore_ascii_case("sleep.p50") {
                     if let Ok(v) = val.parse::<f64>() {
                         params.sleep.p50 += v;
@@ -153,6 +161,14 @@ async fn serve<B>(
                     if let Ok(v) = val.parse::<f64>() {
                         params.sleep.p99 += v;
                     }
+                } else if key.eq_ignore_ascii_case("sleep.max") {
+                    if let Ok(v) = val.parse::<f64>() {
+                        params.sleep.max += v;
+                    }
+                } else if key.eq_ignore_ascii_case("data.min") {
+                    if let Ok(v) = val.parse::<u32>() {
+                        params.data.min += v;
+                    }
                 } else if key.eq_ignore_ascii_case("data.p50") {
                     if let Ok(v) = val.parse::<u32>() {
                         params.data.p50 += v;
@@ -164,6 +180,10 @@ async fn serve<B>(
                 } else if key.eq_ignore_ascii_case("data.p99") {
                     if let Ok(v) = val.parse::<u32>() {
                         params.data.p99 += v;
+                    }
+                } else if key.eq_ignore_ascii_case("data.max") {
+                    if let Ok(v) = val.parse::<u32>() {
+                        params.data.max += v;
                     }
                 } else {
                     tracing::debug!(key, val, "Unknown query parameter");
@@ -206,13 +226,14 @@ impl Params {
         let mut rng = rand::thread_rng();
         let r = rng.gen::<f64>();
 
-        time::Duration::from_secs_f64(if r < 0.5 {
-            (r / 0.5) * sleep.p50
+        let secs = if r < 0.5 {
+            (r / 0.5) * (sleep.p50 - sleep.min) + sleep.min
         } else if r < 0.9 {
-            (r / 0.9) * sleep.p90
+            (r / 0.9) * (sleep.p90 - sleep.p50) + sleep.p50
         } else {
-            r * sleep.p99
-        })
+            r * (sleep.p99 - sleep.p90) + sleep.p90
+        };
+        time::Duration::from_secs_f64(secs.clamp(sleep.min, sleep.max))
     }
 
     fn gen_bytes(&self) -> Vec<u8> {
@@ -251,17 +272,15 @@ impl Params {
         let mut rng = rand::thread_rng();
         let r = rng.gen::<f64>();
 
-        const MAX: usize = 1024 * 1024;
-        let len = MAX.min(
-            if r < 0.5 {
-                (r / 0.5) * (data.p50 as f64)
-            } else if r < 0.9 {
-                (r / 0.9) * (data.p90 as f64)
-            } else {
-                r * (data.p99 as f64)
-            }
-            .floor() as usize,
-        );
+        let len = (if r < 0.5 {
+            (r / 0.5) * (data.p50 as f64 - data.min as f64) + data.min as f64
+        } else if r < 0.9 {
+            (r / 0.9) * (data.p90 as f64 - data.p50 as f64) + data.p50 as f64
+        } else {
+            r * (data.p99 as f64 - data.p90 as f64) + data.p90 as f64
+        }
+        .floor())
+        .clamp(data.min as f64, data.max as f64) as usize;
         tracing::trace!(?len, ?r, "gen_bytes");
 
         rng.sample_iter(&LowercaseAlphanumeric).take(len).collect()

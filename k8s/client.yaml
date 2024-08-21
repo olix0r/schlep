@@ -28,7 +28,7 @@ spec:
     spec:
       containers:
         - name: main
-          image: ghcr.io/olix0r/schlep:v0.5.0
+          image: ghcr.io/olix0r/schlep:v0.5.1
           args:
             - client
             - --rate=5
@@ -64,7 +64,7 @@ spec:
     spec:
       containers:
         - name: main
-          image: ghcr.io/olix0r/schlep:v0.5.0
+          image: ghcr.io/olix0r/schlep:v0.5.1
           args:
             - client
             - --grpc

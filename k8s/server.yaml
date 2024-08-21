@@ -39,36 +39,46 @@ data:
   okay.json: |
     {
       "sleep": {
+        "min": 0.001,
         "p50": 0.01,
         "p90": 0.1,
         "p99": 0.3,
+        "max": 0.5,
       },
       "data": {
+        "min": 5,
         "p50": 500,
         "p90": 5000,
         "p99": 50000,
+        "max": 50000,
       }
     }
   fail.json: |
     {
       "fail-rate": 0.1,
       "data": {
+        "min": 5,
         "p50": 500,
         "p90": 5000,
         "p99": 50000,
+        "max": 50000,
       }
     }
   slow.json: |
     {
       "sleep": {
+        "min": 0.01,
         "p50": 0.1,
         "p90": 0.3,
         "p99": 1.0,
+        "max": 2.0,
       },
       "data": {
+        "min": 5,
         "p50": 500,
         "p90": 5000,
         "p99": 50000,
+        "max": 50000,
       }
     }
 ...
@@ -98,7 +108,7 @@ spec:
     spec:
       containers:
         - name: main
-          image: ghcr.io/olix0r/schlep:v0.5.0
+          image: ghcr.io/olix0r/schlep:v0.5.1
           args:
             - server
             - --config=/okay.json
@@ -142,7 +152,7 @@ spec:
     spec:
       containers:
         - name: main
-          image: ghcr.io/olix0r/schlep:v0.5.0
+          image: ghcr.io/olix0r/schlep:v0.5.1
           args:
             - server
             - --config=/fail.json
@@ -186,7 +196,7 @@ spec:
     spec:
       containers:
         - name: main
-          image: ghcr.io/olix0r/schlep:v0.5.0
+          image: ghcr.io/olix0r/schlep:v0.5.1
           args:
             - server
             - --config=/slow.json
