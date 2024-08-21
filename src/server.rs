@@ -357,9 +357,9 @@ impl schlep_proto::schlep_server::Schlep for GrpcServer {
             params.sleep.p99 += f64::from(sleep.p99);
         }
         if let Some(data) = data {
-            params.sleep.p50 += f64::from(data.p50);
-            params.sleep.p90 += f64::from(data.p90);
-            params.sleep.p99 += f64::from(data.p99);
+            params.data.p50 += data.p50;
+            params.data.p90 += data.p90;
+            params.data.p99 += data.p99;
         }
         tracing::debug!(?params);
 
