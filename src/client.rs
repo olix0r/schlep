@@ -50,7 +50,7 @@ impl std::str::FromStr for Sleep {
     fn from_str(s: &str) -> Result<Self> {
         let mut parts = s.split(',').collect::<Vec<_>>();
         if parts.len() != 3 {
-            anyhow::bail!("expected p50:p90:p99");
+            anyhow::bail!("expected p50,p90,p99");
         }
         Ok(Self {
             p99: parts.pop().unwrap_or_default().parse()?,
