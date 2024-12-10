@@ -1,7 +1,8 @@
-fail-rate: 0.05
+h2-stream-reset: 3
+# fail-rate: 0.05
 # sleep-p50: 0.025
 # sleep-p90: 0.25
 # sleep-p99: 2.5
-data-p50: 1000
-data-p90: 100000
-data-p99: 1000000
+# data-p50: 1000
+# data-p90: 100000
+# data-p101: 1000000

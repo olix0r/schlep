@@ -55,14 +55,7 @@ data:
     }
   fail.json: |
     {
-      "fail-rate": 0.1,
-      "data": {
-        "min": 5,
-        "p50": 500,
-        "p90": 5000,
-        "p99": 50000,
-        "max": 50000,
-      }
+      "h2-stream-reset": 3,
     }
   slow.json: |
     {
@@ -108,7 +101,7 @@ spec:
     spec:
       containers:
         - name: main
-          image: ghcr.io/olix0r/schlep:v0.5.1
+          image: ghcr.io/olix0r/schlep:0.5.2
           args:
             - server
             - --config=/okay.json
@@ -152,7 +145,7 @@ spec:
     spec:
       containers:
         - name: main
-          image: ghcr.io/olix0r/schlep:v0.5.1
+          image: ghcr.io/olix0r/schlep:0.5.2
           args:
             - server
             - --config=/fail.json
@@ -196,7 +189,7 @@ spec:
     spec:
       containers:
         - name: main
-          image: ghcr.io/olix0r/schlep:v0.5.1
+          image: ghcr.io/olix0r/schlep:0.5.2
           args:
             - server
             - --config=/slow.json

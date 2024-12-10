@@ -92,19 +92,17 @@ pub async fn run(
         };
 
         if let Some(h2_stream_reset) = params.borrow().h2_stream_reset {
-            // Spawn a new task to handle the connection
             tokio::spawn(async move {
-                // Perform the HTTP/2 handshake
                 let mut h2 = h2::server::handshake(io).await.expect("Handshake failed");
 
-                // Accept incoming HTTP/2 streams
                 while let Some(result) = h2.accept().await {
                     match result {
-                        Ok((_, mut respond)) => {
-                            // Reset the stream with FLOW_CONTROL_ERROR
-                            respond.send_reset(h2::Reason::from(h2_stream_reset));
+                        Ok((_req, mut respond)) => {
+                            let reason = h2::Reason::from(h2_stream_reset);
+                            tracing::debug!(?reason, "Resetting stream");
+                            respond.send_reset(reason);
                         }
-                        Err(e) => eprintln!("Error accepting stream: {:?}", e),
+                        Err(error) => tracing::warn!(%error, "Error accepting stream"),
                     }
                 }
             });

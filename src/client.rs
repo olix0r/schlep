@@ -230,7 +230,13 @@ async fn dispatch(
             let status = match res {
                 Ok(rsp) => drain(rsp).await,
                 Err(error) => {
-                    tracing::warn!(%error, "Failed");
+                    if let Some(error) = std::error::Error::source(&error)
+                        .and_then(|e| e.downcast_ref::<h2::Error>())
+                    {
+                        tracing::info!(%error, "Failed");
+                    } else {
+                        tracing::warn!(%error, "Failed");
+                    }
                     hyper::StatusCode::INTERNAL_SERVER_ERROR
                 }
             };
