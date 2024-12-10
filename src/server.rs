@@ -30,6 +30,7 @@ struct Params {
     fail_rate: f64,
     sleep: SleepParams,
     data: DataParams,
+    h2_stream_reset: Option<u32>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, serde::Deserialize)]
@@ -89,6 +90,27 @@ pub async fn run(
                 continue;
             }
         };
+
+        if let Some(h2_stream_reset) = params.borrow().h2_stream_reset {
+            // Spawn a new task to handle the connection
+            tokio::spawn(async move {
+                // Perform the HTTP/2 handshake
+                let mut h2 = h2::server::handshake(io).await.expect("Handshake failed");
+
+                // Accept incoming HTTP/2 streams
+                while let Some(result) = h2.accept().await {
+                    match result {
+                        Ok((_, mut respond)) => {
+                            // Reset the stream with FLOW_CONTROL_ERROR
+                            respond.send_reset(h2::Reason::from(h2_stream_reset));
+                        }
+                        Err(e) => eprintln!("Error accepting stream: {:?}", e),
+                    }
+                }
+            });
+            continue;
+        }
+
         let grpc = schlep_proto::schlep_server::SchlepServer::new(GrpcServer {
             params: params.clone(),
             summary: summary.clone(),

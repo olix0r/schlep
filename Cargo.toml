@@ -6,6 +6,7 @@ anyhow = "1"
 bytes = "1"
 clap = { version = "4", features = ["derive", "env"] }
 hdrhistogram = "7"
+h2 = "0.4"
 http = "1"
 http-body-util = "0.1"
 hyper = { version = "1", features = [
@@ -41,6 +42,7 @@ publish = false
 anyhow = { workspace = true }
 bytes = { workspace = true }
 clap = { workspace = true }
+h2 = { workspace = true }
 hdrhistogram = { workspace = true }
 http-body-util = { workspace = true }
 hyper = { workspace = true }
