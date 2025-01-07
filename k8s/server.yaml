@@ -86,7 +86,7 @@ metadata:
     role: server
     flavor: okay
 spec:
-  replicas: 1
+  replicas: 0
   selector:
     matchLabels:
       app: schlep
@@ -94,6 +94,10 @@ spec:
       flavor: okay
   template:
     metadata:
+      annotations:
+        linkerd.io/inject: enabled
+        config.linkerd.io/proxy-log-level: 'h2::proto::streams::prioritize[name=\"inbound\"]=trace,info'
+        config.linkerd.io/proxy-log-format: json
       labels:
         app: schlep
         role: server
@@ -101,7 +105,7 @@ spec:
     spec:
       containers:
         - name: main
-          image: ghcr.io/olix0r/schlep:0.5.2
+          image: ghcr.io/olix0r/schlep:v0.5.3
           args:
             - server
             - --config=/okay.json
@@ -130,7 +134,7 @@ metadata:
     role: server
     flavor: fail
 spec:
-  replicas: 1
+  replicas: 0
   selector:
     matchLabels:
       app: schlep
@@ -138,6 +142,10 @@ spec:
       flavor: fail
   template:
     metadata:
+      annotations:
+        linkerd.io/inject: enabled
+        config.linkerd.io/proxy-log-level: h2[inbound]=trace,info
+        config.linkerd.io/proxy-log-format: json
       labels:
         app: schlep
         role: server
@@ -145,7 +153,7 @@ spec:
     spec:
       containers:
         - name: main
-          image: ghcr.io/olix0r/schlep:0.5.2
+          image: ghcr.io/olix0r/schlep:v0.5.3
           args:
             - server
             - --config=/fail.json
@@ -182,6 +190,10 @@ spec:
       flavor: slow
   template:
     metadata:
+      annotations:
+        linkerd.io/inject: enabled
+        config.linkerd.io/proxy-log-level: h2[inbound]=trace,linkerd=debug,info
+        config.linkerd.io/proxy-log-format: json
       labels:
         app: schlep
         role: server
@@ -189,8 +201,10 @@ spec:
     spec:
       containers:
         - name: main
-          image: ghcr.io/olix0r/schlep:0.5.2
+          image: ghcr.io/olix0r/schlep:v0.5.3
           args:
+            - --log-level=schlep=debug,info
+            - --log-format=schlep=debug,info
             - server
             - --config=/slow.json
           ports:

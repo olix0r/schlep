@@ -94,15 +94,15 @@ pub async fn run(
         if let Some(h2_stream_reset) = params.borrow().h2_stream_reset {
             tokio::spawn(async move {
                 let mut h2 = h2::server::handshake(io).await.expect("Handshake failed");
-
-                while let Some(result) = h2.accept().await {
-                    match result {
-                        Ok((_req, mut respond)) => {
+                loop {
+                    match h2.accept().await {
+                        None => return,
+                        Some(Ok((_req, mut respond))) => {
                             let reason = h2::Reason::from(h2_stream_reset);
                             tracing::debug!(?reason, "Resetting stream");
                             respond.send_reset(reason);
                         }
-                        Err(error) => tracing::warn!(%error, "Error accepting stream"),
+                        Some(Err(error)) => tracing::warn!(%error, "Error accepting stream"),
                     }
                 }
             });
@@ -243,67 +243,12 @@ async fn serve<B>(
 impl Params {
     fn gen_sleep(&self) -> time::Duration {
         let Self { sleep, .. } = self;
-        let mut rng = rand::thread_rng();
-        let r = rng.gen::<f64>();
-
-        let secs = if r < 0.5 {
-            (r / 0.5) * (sleep.p50 - sleep.min) + sleep.min
-        } else if r < 0.9 {
-            (r / 0.9) * (sleep.p90 - sleep.p50) + sleep.p50
-        } else {
-            r * (sleep.p99 - sleep.p90) + sleep.p90
-        };
-        time::Duration::from_secs_f64(secs.clamp(sleep.min, sleep.max))
+        crate::gen_sleep(sleep.min, sleep.p50, sleep.p90, sleep.p99, sleep.max)
     }
 
     fn gen_bytes(&self) -> Vec<u8> {
         let Self { data, .. } = self;
-        struct LowercaseAlphanumeric;
-
-        // Modified from `rand::distributions::Alphanumeric`
-        //
-        // Copyright 2018 Developers of the Rand project
-        // Copyright (c) 2014 The Rust Project Developers
-        //
-        // Licensed under the Apache License, Version 2.0 (the "License");
-        // you may not use this file except in compliance with the License.
-        // You may obtain a copy of the License at
-        //
-        //     http://www.apache.org/licenses/LICENSE-2.0
-        //
-        // Unless required by applicable law or agreed to in writing, software
-        // distributed under the License is distributed on an "AS IS" BASIS,
-        // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-        // See the License for the specific language governing permissions and
-        // limitations under the License.
-        impl rand::distributions::Distribution<u8> for LowercaseAlphanumeric {
-            fn sample<R: rand::Rng + ?Sized>(&self, rng: &mut R) -> u8 {
-                const RANGE: u32 = 26 + 10;
-                const CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
-                loop {
-                    let var = rng.next_u32() >> (32 - 6);
-                    if var < RANGE {
-                        return CHARSET[var as usize];
-                    }
-                }
-            }
-        }
-
-        let mut rng = rand::thread_rng();
-        let r = rng.gen::<f64>();
-
-        let len = (if r < 0.5 {
-            (r / 0.5) * (data.p50 as f64 - data.min as f64) + data.min as f64
-        } else if r < 0.9 {
-            (r / 0.9) * (data.p90 as f64 - data.p50 as f64) + data.p50 as f64
-        } else {
-            r * (data.p99 as f64 - data.p90 as f64) + data.p90 as f64
-        }
-        .floor())
-        .clamp(data.min as f64, data.max as f64) as usize;
-        tracing::trace!(?len, ?r, "gen_bytes");
-
-        rng.sample_iter(&LowercaseAlphanumeric).take(len).collect()
+        crate::gen_bytes(data.min, data.p50, data.p90, data.p99, data.max)
     }
 }
 
@@ -418,5 +363,36 @@ impl schlep_proto::schlep_server::Schlep for GrpcServer {
 
         summary.response(true, time::Instant::now());
         Ok(tonic::Response::new(Ack { data }))
+    }
+
+    async fn sink(
+        &self,
+        req: tonic::Request<tonic::Streaming<schlep_proto::Ack>>,
+    ) -> Result<tonic::Response<schlep_proto::Empty>, tonic::Status> {
+        let summary = self.summary.request(time::Instant::now());
+        let params = self.params.borrow().clone();
+
+        let mut stream = req.into_inner();
+        let ok = loop {
+            let sleep = params.gen_sleep();
+            if sleep > time::Duration::ZERO {
+                tracing::debug!(?sleep);
+                time::sleep(sleep).await;
+            }
+
+            match stream.message().await {
+                Ok(Some(message)) => {
+                    tracing::debug!(bytes = message.data.len());
+                }
+                Ok(None) => break true,
+                Err(error) => {
+                    tracing::info!(%error, "Request stream error");
+                    break false;
+                }
+            }
+        };
+        summary.response(ok, time::Instant::now());
+
+        Ok(tonic::Response::new(schlep_proto::Empty {}))
     }
 }

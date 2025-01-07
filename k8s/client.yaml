@@ -9,7 +9,7 @@ metadata:
     role: client
     proto: http
 spec:
-  replicas: 1
+  replicas: 0
   selector:
     matchLabels:
       app: schlep
@@ -22,13 +22,13 @@ spec:
         role: client
         proto: http
       annotations:
-        linkerd.io/inject: enabled
+        # linkerd.io/inject: enabled
         # config.linkerd.io/proxy-log-level: linkerd=debug,h2=debug,info
         # config.linkerd.io/proxy-log-http-headers: insecure
     spec:
       containers:
         - name: main
-          image: ghcr.io/olix0r/schlep:0.5.2
+          image: ghcr.io/olix0r/schlep:v0.5.3
           args:
             - client
             - --rate=1
@@ -58,16 +58,20 @@ spec:
         role: client
         proto: grpc
       annotations:
-        linkerd.io/inject: enabled
+        # linkerd.io/inject: enabled
         # config.linkerd.io/proxy-log-level: linkerd=debug,h2=debug,info
         # config.linkerd.io/proxy-log-http-headers: insecure
     spec:
       containers:
         - name: main
-          image: ghcr.io/olix0r/schlep:0.5.2
+          image: ghcr.io/olix0r/schlep:v0.5.3
           args:
             - client
             - --grpc
-            - --rate=5
+            - --rate=0.01
+            - --sink
+            - --sink-lifetime=300,600,3600
+            - --data=1000000,10000000,4000000
+            - --sleep=1,10,100
             - api:8080
 ...

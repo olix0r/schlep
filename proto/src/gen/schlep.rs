@@ -38,6 +38,9 @@ pub struct Ack {
     #[prost(bytes = "vec", tag = "1")]
     pub data: ::prost::alloc::vec::Vec<u8>,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct Empty {}
 /// Generated client implementations.
 pub mod schlep_client {
     #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
@@ -142,6 +145,25 @@ pub mod schlep_client {
             req.extensions_mut().insert(GrpcMethod::new("schlep.Schlep", "Get"));
             self.inner.unary(req, path, codec).await
         }
+        pub async fn sink(
+            &mut self,
+            request: impl tonic::IntoStreamingRequest<Message = super::Ack>,
+        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static("/schlep.Schlep/Sink");
+            let mut req = request.into_streaming_request();
+            req.extensions_mut().insert(GrpcMethod::new("schlep.Schlep", "Sink"));
+            self.inner.client_streaming(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -155,6 +177,10 @@ pub mod schlep_server {
             &self,
             request: tonic::Request<super::Params>,
         ) -> std::result::Result<tonic::Response<super::Ack>, tonic::Status>;
+        async fn sink(
+            &self,
+            request: tonic::Request<tonic::Streaming<super::Ack>>,
+        ) -> std::result::Result<tonic::Response<super::Empty>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct SchlepServer<T: Schlep> {
@@ -271,6 +297,49 @@ pub mod schlep_server {
                                 max_encoding_message_size,
                             );
                         let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/schlep.Schlep/Sink" => {
+                    #[allow(non_camel_case_types)]
+                    struct SinkSvc<T: Schlep>(pub Arc<T>);
+                    impl<T: Schlep> tonic::server::ClientStreamingService<super::Ack>
+                    for SinkSvc<T> {
+                        type Response = super::Empty;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<tonic::Streaming<super::Ack>>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as Schlep>::sink(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = SinkSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.client_streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)

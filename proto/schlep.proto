@@ -30,7 +30,11 @@ message Ack {
   bytes data = 1;
 }
 
+message Empty {}
+
 service Schlep {
   rpc Get(Params) returns (Ack) {}
   // rpc GetStream(StreamParams) returns (stream Ack) {}
+
+  rpc Sink(stream Ack) returns (Empty)  {}
 }

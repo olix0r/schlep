@@ -26,7 +26,7 @@ pub struct Args {
 
     /// A comma-separated list of p50, p90, and p99 sleep durations in seconds.
     #[arg(long, default_value = "0.0,0.0,0.0")]
-    sleep: Sleep,
+    sleep: Durations,
 
     /// A comma-separated list of p50, p90, and p99 data sizes in bytes.
     #[arg(long, default_value = "0,0,0")]
@@ -35,16 +35,24 @@ pub struct Args {
     /// Use gRPC instead of simple HTTP.
     #[arg(long, short)]
     grpc: bool,
+
+    /// When using gRPC, use a request streaming client.
+    #[arg(long)]
+    sink: bool,
+
+    /// When using gRPC, use a request streaming client.
+    #[arg(long, default_value = "0.0,0.0,0.0")]
+    sink_lifetime: Durations,
 }
 
 #[derive(Clone, Debug)]
-struct Sleep {
+struct Durations {
     p50: f64,
     p90: f64,
     p99: f64,
 }
 
-impl std::str::FromStr for Sleep {
+impl std::str::FromStr for Durations {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self> {
@@ -86,49 +94,18 @@ impl std::str::FromStr for Data {
 #[derive(Clone, Debug)]
 struct GrpcClient(SendRequest<BoxBody>);
 
-pub async fn run(
-    Args {
-        address,
-        rate,
-        fail_rate,
-        sleep,
-        data,
-        grpc,
-    }: Args,
-) -> Result<()> {
-    if rate.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
+pub async fn run(args: Args) -> Result<()> {
+    if args.rate.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
         anyhow::bail!("--rate must be greater than zero");
     }
 
-    let uri = {
-        format!(
-            "http://{address}/?fail-rate={fail_rate}&sleep.p50={}&sleep.p90={}&sleep.p99={}&data.p50={}&data.p90={}&data.p99={}",
-            sleep.p50, sleep.p90, sleep.p99,
-            data.p50, data.p90, data.p99,
-        )
-        .parse::<hyper::Uri>()?
-    };
-
-    let req = schlep_proto::Params {
-        fail_rate: fail_rate as f32,
-        sleep: Some(schlep_proto::params::Sleep {
-            p50: sleep.p50 as f32,
-            p90: sleep.p90 as f32,
-            p99: sleep.p99 as f32,
-        }),
-        data: Some(schlep_proto::params::Data {
-            p50: data.p50,
-            p90: data.p90,
-            p99: data.p99,
-        }),
-    };
-
     let summary = summary::spawn(time::Duration::from_secs(10));
 
+    let address = args.address.clone();
     loop {
         match connect(&address).await {
             Ok((client, peer)) => {
-                let error = if grpc {
+                let error = if args.grpc {
                     let uri = hyper::Uri::builder()
                         .scheme("http")
                         .authority(&*address)
@@ -137,11 +114,17 @@ pub async fn run(
                         .unwrap();
                     let client =
                         SchlepClient::with_origin(Buffer::new(GrpcClient(client), 10), uri);
-                    dispatch_grpc(rate, req, client, summary.clone())
-                        .instrument(info_span!("dispatch", srv.addr = %peer))
-                        .await
+                    if args.sink {
+                        dispatch_grpc_sink(args.clone(), client, summary.clone())
+                            .instrument(info_span!("dispatch", srv.addr = %peer))
+                            .await
+                    } else {
+                        dispatch_grpc(args.clone(), client, summary.clone())
+                            .instrument(info_span!("dispatch", srv.addr = %peer))
+                            .await
+                    }
                 } else {
-                    dispatch(rate, uri.clone(), client, summary.clone())
+                    dispatch(args.clone(), client, summary.clone())
                         .instrument(info_span!("dispatch", srv.addr = %peer))
                         .await
                 };
@@ -201,11 +184,27 @@ async fn http2_handshake(
 }
 
 async fn dispatch(
-    rate: f64,
-    uri: hyper::Uri,
+    Args {
+        address,
+        rate,
+        sleep,
+        data,
+        fail_rate,
+        ..
+    }: Args,
     mut client: hyper::client::conn::http2::SendRequest<BoxBody>,
     summary: SummaryTx,
 ) -> anyhow::Error {
+    let uri = match format!(
+        "http://{address}/?fail-rate={fail_rate}&sleep.p50={}&sleep.p90={}&sleep.p99={}&data.p50={}&data.p90={}&data.p99={}",
+        sleep.p50, sleep.p90, sleep.p99,
+        data.p50, data.p90, data.p99,
+    )
+    .parse::<hyper::Uri>() {
+        Ok(uri) => uri,
+        Err(error) => return error.into(),
+    };
+
     let mut timer = time::interval(time::Duration::from_secs_f64(1.0 / rate));
     timer.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
 
@@ -247,8 +246,59 @@ async fn dispatch(
 }
 
 async fn dispatch_grpc(
-    rate: f64,
-    params: schlep_proto::Params,
+    Args {
+        rate,
+        sleep,
+        data,
+        fail_rate,
+        ..
+    }: Args,
+    client: SchlepClient<Buffer<GrpcClient, hyper::Request<BoxBody>>>,
+    summary: SummaryTx,
+) -> anyhow::Error {
+    let params = schlep_proto::Params {
+        fail_rate: fail_rate as f32,
+        sleep: Some(schlep_proto::params::Sleep {
+            p50: sleep.p50 as f32,
+            p90: sleep.p90 as f32,
+            p99: sleep.p99 as f32,
+        }),
+        data: Some(schlep_proto::params::Data {
+            p50: data.p50,
+            p90: data.p90,
+            p99: data.p99,
+        }),
+    };
+
+    let mut timer = time::interval(time::Duration::from_secs_f64(1.0 / rate));
+    timer.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
+
+    loop {
+        timer.tick().await;
+        tracing::trace!("Tick");
+
+        let mut client = client.clone();
+        let summary = summary.clone();
+        tokio::spawn(async move {
+            tracing::trace!("Sending request");
+            let start = time::Instant::now();
+            let summary = summary.request(start);
+            let rsp = client.get(tonic::Request::new(params)).await;
+            let elapsed = start.elapsed();
+            tracing::trace!(?elapsed, ?rsp, "get");
+            summary.response(rsp.is_ok(), time::Instant::now());
+        });
+    }
+}
+
+async fn dispatch_grpc_sink(
+    Args {
+        rate,
+        sleep,
+        data,
+        sink_lifetime,
+        ..
+    }: Args,
     client: SchlepClient<Buffer<GrpcClient, hyper::Request<BoxBody>>>,
     summary: SummaryTx,
 ) -> anyhow::Error {
@@ -265,9 +315,49 @@ async fn dispatch_grpc(
             tracing::trace!("Sending request");
             let start = time::Instant::now();
             let summary = summary.request(start);
-            let rsp = client.get(tonic::Request::new(params)).await;
+
+            let (tx, rx) = tokio::sync::mpsc::channel(2);
+            tokio::spawn(async move {
+                let lifetime = crate::gen_sleep(
+                    0.0,
+                    sink_lifetime.p50,
+                    sink_lifetime.p90,
+                    sink_lifetime.p99,
+                    24.0 * 60.0 * 60.0,
+                );
+                tokio::pin! {
+                    let expiry = time::sleep(lifetime);
+                }
+
+                loop {
+                    let tx = tokio::select! {
+                        biased;
+                        _ = &mut expiry => break,
+                        res = tx.reserve() => {
+                            let Ok(tx) = res else {  break };
+                            tx
+                        }
+                    };
+
+                    let data = crate::gen_bytes(0, data.p50, data.p90, data.p99, 4194000);
+                    tx.send(schlep_proto::Ack { data });
+
+                    let pause =
+                        crate::gen_sleep(0.0, sleep.p50, sleep.p90, sleep.p99, 12.0 * 60.0 * 60.0);
+                    tokio::select! {
+                        biased;
+                        _ = &mut expiry => break,
+                        _ = time::sleep(pause) => {},
+                    }
+                }
+            });
+
+            let rsp = client
+                .sink(Box::pin(tokio_stream::wrappers::ReceiverStream::new(rx)))
+                .await;
             let elapsed = start.elapsed();
-            tracing::trace!(?elapsed, ?rsp);
+            tracing::trace!(?elapsed, ?rsp, "sink");
+
             summary.response(rsp.is_ok(), time::Instant::now());
         });
     }
