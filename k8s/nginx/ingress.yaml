@@ -1,0 +1,61 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: GRPC
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_hide_header l5d-remote-ip;
+      proxy_hide_header l5d-server-id;
+    nginx.ingress.kubernetes.io/proxy-body-size: 100m
+    nginx.ingress.kubernetes.io/server-snippet: |
+      grpc_read_timeout 3600s;
+      grpc_send_timeout 3600s;
+      client_body_timeout 3600s;
+    nginx.ingress.kubernetes.io/service-upstream: "true"
+  name: schlep-v1-03
+  namespace: schlep
+spec:
+  ingressClassName: nginx-v1-03
+  rules:
+    - host: nginx-v1-03-ingress-nginx-controller.nginx-v1-03.svc.cluster.local
+      http:
+        paths:
+        - backend:
+            service:
+              name: api
+              port:
+                number: 8080
+          path: /
+          pathType: Prefix
+...
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: GRPC
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      client_body_timeout 3600s;
+      proxy_hide_header l5d-remote-ip;
+      proxy_hide_header l5d-server-id;
+    nginx.ingress.kubernetes.io/proxy-body-size: 100m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/service-upstream: "true"
+  name: schlep-v1-11
+  namespace: schlep
+spec:
+  ingressClassName: nginx-v1-11
+  rules:
+    - host: nginx-v1-11-ingress-nginx-controller.nginx-v1-11.svc.cluster.local
+      http:
+        paths:
+        - backend:
+            service:
+              name: api
+              port:
+                number: 8080
+          path: /
+          pathType: Prefix
+...

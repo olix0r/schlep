@@ -60,11 +60,11 @@ data:
   slow.json: |
     {
       "sleep": {
-        "min": 0.01,
-        "p50": 0.1,
-        "p90": 0.3,
-        "p99": 1.0,
-        "max": 2.0,
+        "min": 0.1,
+        "p50": 1.0,
+        "p90": 10.0,
+        "p99": 30.0,
+        "max": 60.0,
       },
       "data": {
         "min": 5,
@@ -203,8 +203,8 @@ spec:
         - name: main
           image: ghcr.io/olix0r/schlep:v0.5.3
           args:
-            - --log-level=schlep=debug,info
-            - --log-format=schlep=debug,info
+            - --log=schlep=debug,info
+            - --log-format=json
             - server
             - --config=/slow.json
           ports:

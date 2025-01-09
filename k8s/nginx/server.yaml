@@ -1,0 +1,93 @@
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: backend
+  namespace: schlep
+  labels:
+    app: schlep
+    role: server
+spec:
+  type: LoadBalancer
+  selector:
+    app: schlep
+    role: server
+  ports:
+    - name: http
+      appProtocol: kubernetes.io/h2c
+      protocol: TCP
+      port: 80
+      targetPort: 8080
+    - name: grpc
+      appProtocol: kubernetes.io/h2c
+      protocol: TCP
+      port: 8080
+      targetPort: 8080
+...
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: server
+  namespace: schlep
+  labels:
+    app: schlep
+    role: server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: schlep
+      role: server
+  template:
+    metadata:
+      annotations:
+        # linkerd.io/inject: enabled
+        config.linkerd.io/proxy-log-level: 'h2::proto::streams::prioritize[name="inbound"]=trace,linkerd[name="inbound"]=debug,info'
+        config.linkerd.io/proxy-log-format: json
+      labels:
+        app: schlep
+        role: server
+    spec:
+      containers:
+        - name: main
+          image: ghcr.io/olix0r/schlep:v0.5.3
+          args:
+            - --log=schlep=debug,info
+            - --log-format=json
+            - server
+            - --config=/sink.json
+          ports:
+            - containerPort: 8080
+          volumeMounts:
+            - name: config
+              mountPath: /sink.json
+              subPath: sink.json
+      volumes:
+        - name: config
+          configMap:
+            name: server
+            items:
+              - key: sink.json
+                path: sink.json
+...
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: server
+  namespace: schlep
+  labels:
+    app: schlep
+data:
+  sink.json: |
+    {
+      "sleep": {
+        "min": 0.1,
+        "p50": 1.0,
+        "p90": 10.0,
+        "p99": 30.0,
+        "max": 60.0,
+      }
+    }
+...

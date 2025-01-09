@@ -2,65 +2,29 @@
 kind: Deployment
 apiVersion: apps/v1
 metadata:
-  name: client-http
+  name: client-v1-19
   namespace: schlep
   labels:
     app: schlep
     role: client
-    proto: http
-spec:
-  replicas: 0
-  selector:
-    matchLabels:
-      app: schlep
-      role: client
-      proto: http
-  template:
-    metadata:
-      labels:
-        app: schlep
-        role: client
-        proto: http
-      annotations:
-        # linkerd.io/inject: enabled
-        # config.linkerd.io/proxy-log-level: linkerd=debug,h2=debug,info
-        # config.linkerd.io/proxy-log-http-headers: insecure
-    spec:
-      containers:
-        - name: main
-          image: ghcr.io/olix0r/schlep:v0.5.3
-          args:
-            - client
-            - --rate=1
-            - api:80
-...
----
-kind: Deployment
-apiVersion: apps/v1
-metadata:
-  name: client-grpc
-  namespace: schlep
-  labels:
-    app: schlep
-    role: client
-    proto: grpc
+    nginx: v1-19
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: schlep
       role: client
-      proto: grpc
+      nginx: v1-19
   template:
     metadata:
       labels:
         app: schlep
         role: client
-        proto: grpc
+        nginx: v1-19
       annotations:
         # linkerd.io/inject: enabled
-        # config.linkerd.io/proxy-log-level: linkerd=debug,h2=debug,info
-        # config.linkerd.io/proxy-log-http-headers: insecure
+        config.linkerd.io/proxy-log-level: linkerd=debug,h2=debug,info
+        config.linkerd.io/proxy-log-http-headers: insecure
     spec:
       containers:
         - name: main
@@ -75,5 +39,48 @@ spec:
             - --sink-lifetime=300,600,3600
             - --data=10000,100000,1000000
             - --sleep=0.01,0.1,1.0
-            - api:8080
+            - nginx-v1-19:8080
+...
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: client-v1-25
+  namespace: schlep
+  labels:
+    app: schlep
+    role: client
+    nginx: v1-25
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: schlep
+      role: client
+      nginx: v1-25
+  template:
+    metadata:
+      labels:
+        app: schlep
+        role: client
+        nginx: v1-25
+      annotations:
+        # linkerd.io/inject: enabled
+        config.linkerd.io/proxy-log-level: linkerd=debug,h2=debug,info
+        config.linkerd.io/proxy-log-http-headers: insecure
+    spec:
+      containers:
+        - name: main
+          image: ghcr.io/olix0r/schlep:v0.5.3
+          args:
+            - --log=schlep=debug,info
+            - --log-format=json
+            - client
+            - --grpc
+            - --rate=1
+            - --sink
+            - --sink-lifetime=300,600,3600
+            - --data=10000,100000,1000000
+            - --sleep=0.01,0.1,1.0
+            - nginx-v1-25:80
 ...

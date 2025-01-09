@@ -305,6 +305,7 @@ async fn dispatch_grpc_sink(
     let mut timer = time::interval(time::Duration::from_secs_f64(1.0 / rate));
     timer.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
 
+    let mut sink_count = 0;
     loop {
         timer.tick().await;
         tracing::trace!("Tick");
@@ -317,40 +318,49 @@ async fn dispatch_grpc_sink(
             let summary = summary.request(start);
 
             let (tx, rx) = tokio::sync::mpsc::channel(2);
-            tokio::spawn(async move {
-                let lifetime = crate::gen_sleep(
-                    0.0,
-                    sink_lifetime.p50,
-                    sink_lifetime.p90,
-                    sink_lifetime.p99,
-                    24.0 * 60.0 * 60.0,
-                );
-                tokio::pin! {
-                    let expiry = time::sleep(lifetime);
-                }
+            sink_count += 1;
+            tokio::spawn(
+                async move {
+                    let lifetime = crate::gen_sleep(
+                        0.0,
+                        sink_lifetime.p50,
+                        sink_lifetime.p90,
+                        sink_lifetime.p99,
+                        24.0 * 60.0 * 60.0,
+                    );
+                    tokio::pin! {
+                        let expiry = time::sleep(lifetime);
+                    }
 
-                loop {
-                    let tx = tokio::select! {
-                        biased;
-                        _ = &mut expiry => break,
-                        res = tx.reserve() => {
-                            let Ok(tx) = res else {  break };
-                            tx
+                    loop {
+                        let tx = tokio::select! {
+                            biased;
+                            _ = &mut expiry => break,
+                            res = tx.reserve() => {
+                                let Ok(tx) = res else {  break };
+                                tx
+                            }
+                        };
+
+                        let data = crate::gen_bytes(0, data.p50, data.p90, data.p99, 4194000);
+                        tx.send(schlep_proto::Ack { data });
+
+                        let pause = crate::gen_sleep(
+                            0.0,
+                            sleep.p50,
+                            sleep.p90,
+                            sleep.p99,
+                            12.0 * 60.0 * 60.0,
+                        );
+                        tokio::select! {
+                            biased;
+                            _ = &mut expiry => break,
+                            _ = time::sleep(pause) => {},
                         }
-                    };
-
-                    let data = crate::gen_bytes(0, data.p50, data.p90, data.p99, 4194000);
-                    tx.send(schlep_proto::Ack { data });
-
-                    let pause =
-                        crate::gen_sleep(0.0, sleep.p50, sleep.p90, sleep.p99, 12.0 * 60.0 * 60.0);
-                    tokio::select! {
-                        biased;
-                        _ = &mut expiry => break,
-                        _ = time::sleep(pause) => {},
                     }
                 }
-            });
+                .instrument(info_span!("sink", n = %sink_count)),
+            );
 
             let rsp = client
                 .sink(Box::pin(tokio_stream::wrappers::ReceiverStream::new(rx)))
