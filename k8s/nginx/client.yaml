@@ -7,24 +7,27 @@ metadata:
   labels:
     app: schlep
     role: client
-    nginx: v1-19
+    nginx/version: v1.19
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: schlep
       role: client
-      nginx: v1-19
+      nginx/version: v1.19
   template:
     metadata:
       labels:
         app: schlep
         role: client
-        nginx: v1-19
-      annotations:
-        # linkerd.io/inject: enabled
-        config.linkerd.io/proxy-log-level: linkerd=debug,h2=debug,info
-        config.linkerd.io/proxy-log-http-headers: insecure
+        nginx/version: v1.19
+      # annotations:
+      #   linkerd.io/inject: enabled
+      #   config.linkerd.io/proxy-log-level: linkerd=debug,h2=debug,info
+      #   config.linkerd.io/proxy-log-http-headers: insecure
+      #   prometheus.io/scrape: "true"
+      #   prometheus.io/path: /metrics
+      #   prometheus.io/port: "4191"
     spec:
       containers:
         - name: main
@@ -37,7 +40,7 @@ spec:
             - --rate=1
             - --sink
             - --sink-lifetime=300,600,3600
-            - --data=10000,100000,1000000
+            - --data=100000,500000,1000000
             - --sleep=0.01,0.1,1.0
             - nginx-v1-19:8080
 ...
@@ -50,24 +53,27 @@ metadata:
   labels:
     app: schlep
     role: client
-    nginx: v1-25
+    nginx/version: v1.25
 spec:
-  replicas: 0
+  replicas: 1
   selector:
     matchLabels:
       app: schlep
       role: client
-      nginx: v1-25
+      nginx/version: v1.25
   template:
     metadata:
       labels:
         app: schlep
         role: client
-        nginx: v1-25
-      annotations:
-        # linkerd.io/inject: enabled
-        config.linkerd.io/proxy-log-level: linkerd=debug,h2=debug,info
-        config.linkerd.io/proxy-log-http-headers: insecure
+        nginx/version: v1.25
+      # annotations:
+      #   linkerd.io/inject: enabled
+      #   config.linkerd.io/proxy-log-level: linkerd=debug,h2=debug,info
+      #   config.linkerd.io/proxy-log-http-headers: insecure
+      #   prometheus.io/scrape: "true"
+      #   prometheus.io/path: /metrics
+      #   prometheus.io/port: "4191"
     spec:
       containers:
         - name: main
@@ -80,7 +86,7 @@ spec:
             - --rate=1
             - --sink
             - --sink-lifetime=300,600,3600
-            - --data=10000,100000,1000000
+            - --data=100000,500000,1000000
             - --sleep=0.01,0.1,1.0
-            - nginx-v1-25:80
+            - nginx-v1-25:8080
 ...

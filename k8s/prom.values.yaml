@@ -1,0 +1,19 @@
+server:
+  global:
+    scrape_interval: 10s
+    scrape_timeout: 3s
+
+  persistentVolume:
+    enabled: false
+
+prometheus-node-exporter:
+  enabled: true
+
+alertmanager:
+  enabled: false
+
+kube-state-metrics:
+  enabled: false
+
+prometheus-pushgateway:
+  enabled: false

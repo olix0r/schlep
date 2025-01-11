@@ -67,7 +67,9 @@ pub async fn run(
     }: Args,
 ) -> Result<()> {
     let mut server = hyper::server::conn::http2::Builder::new(TokioExecutor::new());
-    server.max_concurrent_streams(max_concurrent_streams);
+    server
+        .max_concurrent_streams(max_concurrent_streams)
+        .adaptive_window(true);
 
     tracing::info!(?port);
     let listener = tokio::net::TcpListener::bind(

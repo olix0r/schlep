@@ -25,12 +25,12 @@ metadata:
   namespace: schlep
   labels:
     app: nginx
-    version: v1.19
+    nginx/version: v1.19
 spec:
   type: LoadBalancer
   selector:
     app: nginx
-    version: v1.19
+    nginx/version: v1.19
   ports:
     - name: grpc
       appProtocol: kubernetes.io/h2c
@@ -46,12 +46,12 @@ metadata:
   namespace: schlep
   labels:
     app: nginx
-    version: v1.25
+    nginx/version: v1.25
 spec:
   type: LoadBalancer
   selector:
     app: nginx
-    version: v1.25
+    nginx/version: v1.25
   ports:
     - name: grpc
       appProtocol: kubernetes.io/h2c
@@ -65,17 +65,29 @@ kind: Deployment
 metadata:
   name: nginx-v1-19
   namespace: schlep
+  labels:
+    app: nginx
+    nginx/version: v1.19
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: nginx
-      version: v1.19
+      nginx/version: v1.19
   template:
     metadata:
+      annotations:
+        linkerd.io/inject: enabled
+        config.linkerd.io/skip-inbound-ports: "8080"
+        # config.linkerd.io/proxy-log-level: >-
+        #   h2::proto::streams::prioritize=trace,linkerd=debug,info
+        config.linkerd.io/proxy-log-format: json
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "4191"
       labels:
         app: nginx
-        version: v1.19
+        nginx/version: v1.19
     spec:
       containers:
         - name: nginx
@@ -97,17 +109,29 @@ kind: Deployment
 metadata:
   name: nginx-v1-25
   namespace: schlep
+  labels:
+    app: nginx
+    nginx/version: v1.25
 spec:
   replicas: 1
   selector:
     matchLabels:
       app: nginx
-      version: v1.25
+      nginx/version: v1.25
   template:
     metadata:
+      annotations:
+        linkerd.io/inject: enabled
+        config.linkerd.io/skip-inbound-ports: "8080"
+        # config.linkerd.io/proxy-log-level: >-
+        #   h2::proto::streams::prioritize=trace,linkerd=debug,info
+        config.linkerd.io/proxy-log-format: json
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "4191"
       labels:
         app: nginx
-        version: v1.25
+        nginx/version: v1.25
     spec:
       containers:
         - name: nginx

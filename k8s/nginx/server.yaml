@@ -42,9 +42,12 @@ spec:
   template:
     metadata:
       annotations:
-        # linkerd.io/inject: enabled
-        config.linkerd.io/proxy-log-level: 'h2::proto::streams::prioritize[name="inbound"]=trace,linkerd[name="inbound"]=debug,info'
-        config.linkerd.io/proxy-log-format: json
+        linkerd.io/inject: enabled
+        config.linkerd.io/proxy-log-level: linkerd=debug,h2=debug,info
+        # config.linkerd.io/proxy-log-http-headers: insecure
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: "4191"
       labels:
         app: schlep
         role: server
