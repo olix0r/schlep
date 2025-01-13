@@ -15,7 +15,7 @@ hyper = { version = "1", features = [
     "server",
 ] }
 hyper-util = { version = "0.1", features = ["tokio"] }
-kubert = { version = "0.21", default-features = false, features = [
+kubert = { version = "0.23.0-alpha6", default-features = false, features = [
     "clap",
     "log",
     "shutdown",
