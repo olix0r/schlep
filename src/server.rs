@@ -24,6 +24,12 @@ pub struct Args {
     config: Option<PathBuf>,
 }
 
+#[derive(Clone, Debug)]
+pub struct Metrics {
+    grpc_sinks: prometheus_client::metrics::gauge::Gauge,
+    grpc_sink_events: prometheus_client::metrics::counter::Counter,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, serde::Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 struct Params {
@@ -57,6 +63,8 @@ struct DataParams {
 struct GrpcServer {
     params: watch::Receiver<Params>,
     summary: SummaryTx,
+    sinks: prometheus_client::metrics::gauge::Gauge,
+    sink_events: prometheus_client::metrics::counter::Counter,
 }
 
 pub async fn run(
@@ -65,6 +73,10 @@ pub async fn run(
         max_concurrent_streams,
         config,
     }: Args,
+    Metrics {
+        grpc_sinks,
+        grpc_sink_events,
+    }: Metrics,
 ) -> Result<()> {
     let mut server = hyper::server::conn::http2::Builder::new(TokioExecutor::new());
     server
@@ -115,6 +127,8 @@ pub async fn run(
         let grpc = schlep_proto::schlep_server::SchlepServer::new(GrpcServer {
             params: params.clone(),
             summary: summary.clone(),
+            sinks: grpc_sinks.clone(),
+            sink_events: grpc_sink_events.clone(),
         });
         tokio::spawn(
             server
@@ -375,6 +389,16 @@ impl schlep_proto::schlep_server::Schlep for GrpcServer {
         let summary = self.summary.request(time::Instant::now());
         let params = self.params.borrow().clone();
 
+        struct Guard<'t>(&'t prometheus_client::metrics::gauge::Gauge);
+        impl Drop for Guard<'_> {
+            #[inline]
+            fn drop(&mut self) {
+                self.0.dec();
+            }
+        }
+        self.sinks.inc();
+        let guard = Guard(&self.sinks);
+
         let mut stream = req.into_inner();
         let ok = loop {
             let sleep = params.gen_sleep();
@@ -386,6 +410,7 @@ impl schlep_proto::schlep_server::Schlep for GrpcServer {
             match stream.message().await {
                 Ok(Some(message)) => {
                     tracing::debug!(bytes = message.data.len());
+                    self.sink_events.inc();
                 }
                 Ok(None) => break true,
                 Err(error) => {
@@ -396,6 +421,28 @@ impl schlep_proto::schlep_server::Schlep for GrpcServer {
         };
         summary.response(ok, time::Instant::now());
 
+        drop(guard);
         Ok(tonic::Response::new(schlep_proto::Empty {}))
+    }
+}
+
+impl Metrics {
+    pub fn register(reg: &mut prometheus_client::registry::Registry) -> Self {
+        let grpc_sinks = prometheus_client::metrics::gauge::Gauge::default();
+        reg.register(
+            "sinks",
+            "The number of active gRPC sinkc alls",
+            grpc_sinks.clone(),
+        );
+        let grpc_sink_events = prometheus_client::metrics::counter::Counter::default();
+        reg.register(
+            "sink_events",
+            "The number of gRPC sink events",
+            grpc_sink_events.clone(),
+        );
+        Self {
+            grpc_sinks,
+            grpc_sink_events,
+        }
     }
 }

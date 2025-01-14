@@ -11,6 +11,9 @@ struct Args {
     #[command(subcommand)]
     command: Cmd,
 
+    #[clap(flatten)]
+    admin: kubert::AdminArgs,
+
     #[clap(long, env = "SCHLEP_LOG", default_value = "schlep=info,warn")]
     log: kubert::LogFilter,
 
@@ -30,6 +33,7 @@ async fn main() -> Result<()> {
         command,
         log_format,
         log,
+        admin,
     } = Args::try_parse()?;
 
     log_format.try_init(log)?;
@@ -42,24 +46,28 @@ async fn main() -> Result<()> {
         drop(release);
     });
 
-    let run = async move {
-        match command {
-            Cmd::Server(args) => {
-                server::run(args)
-                    .instrument(info_span!("server", %host))
-                    .await
-            }
-            Cmd::Client(args) => {
-                client::run(args)
-                    .instrument(info_span!("client", %host))
-                    .await
+    match command {
+        Cmd::Server(args) => {
+            let mut reg = prometheus_client::registry::Registry::default();
+            let metrics = server::Metrics::register(reg.sub_registry_with_prefix("server"));
+
+            admin.into_builder().with_prometheus(reg).bind()?.spawn();
+            tokio::select! {
+                res = server::run(args, metrics).instrument(info_span!("server", %host)) => res,
+                _ = shutdown.signaled() => Ok(()),
             }
         }
-    };
 
-    tokio::select! {
-        res = run => res,
-        _ = shutdown.signaled() => Ok(()),
+        Cmd::Client(args) => {
+            let mut reg = prometheus_client::registry::Registry::default();
+            let metrics = client::Metrics::register(reg.sub_registry_with_prefix("client"));
+
+            admin.into_builder().with_prometheus(reg).bind()?.spawn();
+            tokio::select! {
+                res = client::run(args, metrics).instrument(info_span!("client", %host)) => res,
+                _ = shutdown.signaled() => Ok(()),
+            }
+        }
     }
 }
 

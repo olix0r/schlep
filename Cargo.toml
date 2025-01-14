@@ -15,12 +15,15 @@ hyper = { version = "1", features = [
     "server",
 ] }
 hyper-util = { version = "0.1", features = ["tokio"] }
-kubert = { version = "0.23.0-alpha6", default-features = false, features = [
+kubert = { version = "0.23.0-alpha7", default-features = false, features = [
+    "admin",
     "clap",
     "log",
+    "prometheus-client",
     "shutdown",
 ] }
 futures = { version = "0.3", default-features = false }
+prometheus-client = "0.23"
 prost = "0.13"
 rand = "0.8"
 serde = { version = "1", features = ["derive"] }
@@ -50,6 +53,7 @@ hyper = { workspace = true }
 hyper-util = { workspace = true }
 kubert = { workspace = true }
 futures = { workspace = true }
+prometheus-client = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

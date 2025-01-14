@@ -45,6 +45,9 @@ pub struct Args {
     sink_lifetime: Durations,
 }
 
+#[derive(Debug)]
+pub struct Metrics {}
+
 #[derive(Clone, Debug)]
 struct Durations {
     p50: f64,
@@ -94,7 +97,7 @@ impl std::str::FromStr for Data {
 #[derive(Clone, Debug)]
 struct GrpcClient(SendRequest<BoxBody>);
 
-pub async fn run(args: Args) -> Result<()> {
+pub async fn run(args: Args, _metrics: Metrics) -> Result<()> {
     if args.rate.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
         anyhow::bail!("--rate must be greater than zero");
     }
@@ -402,5 +405,11 @@ impl tower::Service<hyper::Request<BoxBody>> for GrpcClient {
                 .send_request(req)
                 .map_ok(|rsp| rsp.map(tonic::body::boxed)),
         )
+    }
+}
+
+impl Metrics {
+    pub fn register(_reg: &mut prometheus_client::registry::Registry) -> Self {
+        Self {}
     }
 }
