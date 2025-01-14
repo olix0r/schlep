@@ -46,8 +46,7 @@ spec:
         config.linkerd.io/proxy-log-level: linkerd=debug,h2=debug,info
         # config.linkerd.io/proxy-log-http-headers: insecure
         prometheus.io/scrape: "true"
-        prometheus.io/path: /metrics
-        prometheus.io/port: "4191"
+        prometheus.io/port: "9080"
       labels:
         app: schlep
         role: server
@@ -56,6 +55,7 @@ spec:
         - name: main
           image: ghcr.io/olix0r/schlep:v0.5.3
           args:
+            - --admin-addr=0.0.0.0:9080
             - --log=schlep=debug,info
             - --log-format=json
             - server

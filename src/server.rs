@@ -3,6 +3,10 @@ use anyhow::Result;
 use bytes::Bytes;
 use http_body_util::Full;
 use hyper_util::rt::TokioExecutor;
+use prometheus_client::{
+    metrics::{counter::Counter, gauge::Gauge},
+    registry::Registry,
+};
 use rand::Rng;
 use schlep_proto::Ack;
 use std::{
@@ -26,8 +30,8 @@ pub struct Args {
 
 #[derive(Clone, Debug)]
 pub struct Metrics {
-    grpc_sinks: prometheus_client::metrics::gauge::Gauge,
-    grpc_sink_events: prometheus_client::metrics::counter::Counter,
+    grpc_sinks: Gauge,
+    grpc_sink_events: Counter,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, serde::Deserialize)]
@@ -63,8 +67,8 @@ struct DataParams {
 struct GrpcServer {
     params: watch::Receiver<Params>,
     summary: SummaryTx,
-    sinks: prometheus_client::metrics::gauge::Gauge,
-    sink_events: prometheus_client::metrics::counter::Counter,
+    sinks: Gauge,
+    sink_events: Counter,
 }
 
 pub async fn run(
@@ -389,7 +393,7 @@ impl schlep_proto::schlep_server::Schlep for GrpcServer {
         let summary = self.summary.request(time::Instant::now());
         let params = self.params.borrow().clone();
 
-        struct Guard<'t>(&'t prometheus_client::metrics::gauge::Gauge);
+        struct Guard<'t>(&'t Gauge);
         impl Drop for Guard<'_> {
             #[inline]
             fn drop(&mut self) {
@@ -427,19 +431,21 @@ impl schlep_proto::schlep_server::Schlep for GrpcServer {
 }
 
 impl Metrics {
-    pub fn register(reg: &mut prometheus_client::registry::Registry) -> Self {
-        let grpc_sinks = prometheus_client::metrics::gauge::Gauge::default();
+    pub fn register(reg: &mut Registry) -> Self {
+        let grpc_sinks = Gauge::default();
         reg.register(
-            "sinks",
+            "grpc_sinks",
             "The number of active gRPC sinkc alls",
             grpc_sinks.clone(),
         );
-        let grpc_sink_events = prometheus_client::metrics::counter::Counter::default();
+
+        let grpc_sink_events = Counter::default();
         reg.register(
-            "sink_events",
+            "grpc_sink_events",
             "The number of gRPC sink events",
             grpc_sink_events.clone(),
         );
+
         Self {
             grpc_sinks,
             grpc_sink_events,

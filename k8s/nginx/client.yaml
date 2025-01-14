@@ -21,18 +21,18 @@ spec:
         app: schlep
         role: client
         nginx/version: v1.19
-      # annotations:
-      #   linkerd.io/inject: enabled
-      #   config.linkerd.io/proxy-log-level: linkerd=debug,h2=debug,info
-      #   config.linkerd.io/proxy-log-http-headers: insecure
-      #   prometheus.io/scrape: "true"
-      #   prometheus.io/path: /metrics
-      #   prometheus.io/port: "4191"
+      annotations:
+        #  linkerd.io/inject: enabled
+        # config.linkerd.io/proxy-log-level: linkerd=debug,h2=debug,info
+        # config.linkerd.io/proxy-log-http-headers: insecure
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9080"
     spec:
       containers:
         - name: main
           image: ghcr.io/olix0r/schlep:v0.5.3
           args:
+            - --admin-addr=0.0.0.0:9080
             - --log=schlep=debug,info
             - --log-format=json
             - client
@@ -67,18 +67,18 @@ spec:
         app: schlep
         role: client
         nginx/version: v1.25
-      # annotations:
-      #   linkerd.io/inject: enabled
-      #   config.linkerd.io/proxy-log-level: linkerd=debug,h2=debug,info
-      #   config.linkerd.io/proxy-log-http-headers: insecure
-      #   prometheus.io/scrape: "true"
-      #   prometheus.io/path: /metrics
-      #   prometheus.io/port: "4191"
+      annotations:
+        # linkerd.io/inject: enabled
+        # config.linkerd.io/proxy-log-level: linkerd=debug,h2=debug,info
+        # config.linkerd.io/proxy-log-http-headers: insecure
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9080"
     spec:
       containers:
         - name: main
           image: ghcr.io/olix0r/schlep:v0.5.3
           args:
+            - --admin-addr=0.0.0.0:9080
             - --log=schlep=debug,info
             - --log-format=json
             - client

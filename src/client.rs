@@ -2,6 +2,10 @@ use anyhow::Result;
 use futures::TryFutureExt;
 use http_body_util::BodyExt;
 use hyper::client::conn::http2::SendRequest;
+use prometheus_client::{
+    metrics::{counter::Counter, gauge::Gauge},
+    registry::Registry,
+};
 use schlep_proto::schlep_client::SchlepClient;
 use std::net::SocketAddr;
 use tokio::time;
@@ -45,8 +49,11 @@ pub struct Args {
     sink_lifetime: Durations,
 }
 
-#[derive(Debug)]
-pub struct Metrics {}
+#[derive(Clone, Debug)]
+pub struct Metrics {
+    grpc_sinks: Gauge,
+    grpc_sink_events: Counter,
+}
 
 #[derive(Clone, Debug)]
 struct Durations {
@@ -97,7 +104,7 @@ impl std::str::FromStr for Data {
 #[derive(Clone, Debug)]
 struct GrpcClient(SendRequest<BoxBody>);
 
-pub async fn run(args: Args, _metrics: Metrics) -> Result<()> {
+pub async fn run(args: Args, metrics: Metrics) -> Result<()> {
     if args.rate.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
         anyhow::bail!("--rate must be greater than zero");
     }
@@ -106,38 +113,41 @@ pub async fn run(args: Args, _metrics: Metrics) -> Result<()> {
 
     let address = args.address.clone();
     loop {
-        match connect(&address).await {
-            Ok((client, peer)) => {
-                let error = if args.grpc {
-                    let uri = hyper::Uri::builder()
-                        .scheme("http")
-                        .authority(&*address)
-                        .path_and_query("")
-                        .build()
-                        .unwrap();
-                    let client =
-                        SchlepClient::with_origin(Buffer::new(GrpcClient(client), 10), uri);
-                    if args.sink {
-                        dispatch_grpc_sink(args.clone(), client, summary.clone())
-                            .instrument(info_span!("dispatch", srv.addr = %peer))
-                            .await
-                    } else {
-                        dispatch_grpc(args.clone(), client, summary.clone())
-                            .instrument(info_span!("dispatch", srv.addr = %peer))
-                            .await
-                    }
-                } else {
-                    dispatch(args.clone(), client, summary.clone())
-                        .instrument(info_span!("dispatch", srv.addr = %peer))
-                        .await
-                };
-                tracing::info!(%error, srv.addr = %peer, "Dispatch error");
-            }
+        let (client, peer) = match connect(&address).await {
+            Ok((client, peer)) => (client, peer),
             Err(error) => {
                 tracing::warn!(%error, %address, "Connection error");
+                time::sleep(time::Duration::from_secs(1)).await;
+                continue;
             }
+        };
+
+        if !args.grpc {
+            let error = dispatch(args.clone(), client, summary.clone())
+                .instrument(info_span!("dispatch", srv.addr = %peer))
+                .await;
+            tracing::warn!(%error, %address, "HTTP dispatch error");
+            time::sleep(time::Duration::from_secs(1)).await;
+            continue;
         }
 
+        let uri = hyper::Uri::builder()
+            .scheme("http")
+            .authority(&*address)
+            .path_and_query("")
+            .build()
+            .unwrap();
+        let client = SchlepClient::with_origin(Buffer::new(GrpcClient(client), 10), uri);
+        let error = if args.sink {
+            dispatch_grpc_sink(args.clone(), client, summary.clone(), metrics.clone())
+                .instrument(info_span!("dispatch", srv.addr = %peer))
+                .await
+        } else {
+            dispatch_grpc(args.clone(), client, summary.clone())
+                .instrument(info_span!("dispatch", srv.addr = %peer))
+                .await
+        };
+        tracing::info!(%error, srv.addr = %peer, "gRPC Dispatch error");
         time::sleep(time::Duration::from_secs(1)).await;
     }
 }
@@ -304,6 +314,7 @@ async fn dispatch_grpc_sink(
     }: Args,
     client: SchlepClient<Buffer<GrpcClient, hyper::Request<BoxBody>>>,
     summary: SummaryTx,
+    metrics: Metrics,
 ) -> anyhow::Error {
     let mut timer = time::interval(time::Duration::from_secs_f64(1.0 / rate));
     timer.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
@@ -315,13 +326,25 @@ async fn dispatch_grpc_sink(
 
         let mut client = client.clone();
         let summary = summary.clone();
+        let metrics = metrics.clone();
         tokio::spawn(async move {
             tracing::trace!("Sending request");
             let start = time::Instant::now();
             let summary = summary.request(start);
 
+            struct Guard(Gauge);
+            impl Drop for Guard {
+                #[inline]
+                fn drop(&mut self) {
+                    self.0.dec();
+                }
+            }
+            metrics.grpc_sinks.inc();
+            let guard = Guard(metrics.grpc_sinks.clone());
+
             let (tx, rx) = tokio::sync::mpsc::channel(2);
             sink_count += 1;
+            let sink_events = metrics.grpc_sink_events.clone();
             tokio::spawn(
                 async move {
                     let lifetime = crate::gen_sleep(
@@ -347,6 +370,7 @@ async fn dispatch_grpc_sink(
 
                         let data = crate::gen_bytes(0, data.p50, data.p90, data.p99, 4194000);
                         tx.send(schlep_proto::Ack { data });
+                        sink_events.inc();
 
                         let pause = crate::gen_sleep(
                             0.0,
@@ -361,6 +385,8 @@ async fn dispatch_grpc_sink(
                             _ = time::sleep(pause) => {},
                         }
                     }
+
+                    drop(guard);
                 }
                 .instrument(info_span!("sink", n = %sink_count)),
             );
@@ -409,7 +435,24 @@ impl tower::Service<hyper::Request<BoxBody>> for GrpcClient {
 }
 
 impl Metrics {
-    pub fn register(_reg: &mut prometheus_client::registry::Registry) -> Self {
-        Self {}
+    pub fn register(reg: &mut Registry) -> Self {
+        let grpc_sinks = Gauge::default();
+        reg.register(
+            "grpc_sinks",
+            "The number of active gRPC sinkc alls",
+            grpc_sinks.clone(),
+        );
+
+        let grpc_sink_events = Counter::default();
+        reg.register(
+            "grpc_sink_events",
+            "The number of gRPC sink events",
+            grpc_sink_events.clone(),
+        );
+
+        Self {
+            grpc_sinks,
+            grpc_sink_events,
+        }
     }
 }
