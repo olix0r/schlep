@@ -1,4 +1,6 @@
-FROM docker.io/library/rust:1.76-slim-bullseye as build
+FROM --platform=$BUILDPLATFORM docker.io/library/rust:1.83-slim-bullseye AS build
+ENV CARGO_INCREMENTAL=0
+ARG TARGETARCH="amd64"
 WORKDIR /src
 COPY . .
 RUN cargo fetch --locked

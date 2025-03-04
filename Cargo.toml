@@ -33,7 +33,7 @@ tracing = "0.1"
 
 [package]
 name = "schlep"
-version = "0.5.1"
+version = "0.5.4"
 edition = "2021"
 publish = false
 
